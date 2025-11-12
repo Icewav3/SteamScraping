@@ -1,0 +1,6 @@
+aiohttp
+nest_asyncio
+tqdm
+pandas
+seaborn
+matplotlib
