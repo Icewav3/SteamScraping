@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run Marimo App",
+            "type": "python", 
+            "request": "launch",
+            // Use the Python interpreter from the selected VENV
+            "program": "${workspaceFolder}/.venv/Scripts/marimo.exe",
+            // Pass the marimo executable path as an argument to the interpreter
+            "args": [
+                "run",
+                "main.py",
+                "--port",
+                "8888" 
+            ],
+            "preLaunchTask": "uv: sync dependencies", 
+            "console": "integratedTerminal",
+            "justMyCode": true
+        }
+    ]
+}
