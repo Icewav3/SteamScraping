@@ -23,18 +23,10 @@ def _(mo):
 @app.cell
 def _():
     #Install Dependencies
-    import nest_asyncio
     from src.FileSystem import FileSystem
     from src.BaseScraper import BaseScraper
     from src.SteamSpyScraper import SteamSpyScraper
-    return FileSystem, SteamSpyScraper, nest_asyncio
-
-
-@app.cell
-def _(nest_asyncio):
-    # Enable nested asyncio for Jupyter
-    nest_asyncio.apply()
-    return
+    return FileSystem, SteamSpyScraper
 
 
 @app.cell(hide_code=True)
@@ -64,3 +56,6 @@ def _():
 
 if __name__ == "__main__":
     app.run()
+
+
+

@@ -5,7 +5,7 @@ import asyncio
 from abc import ABC, abstractmethod
 from typing import Optional, Set
 import aiohttp
-from tqdm.notebook import tqdm
+from tqdm import tqdm
 from datetime import datetime
 
 from .FileSystem import FileSystem
