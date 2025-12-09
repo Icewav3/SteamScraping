@@ -3,9 +3,17 @@ BaseScraper - Abstract base class for all scrapers.
 """
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Optional, Set
+from typing import Optional, Set, Iterable
 import aiohttp
-from tqdm import tqdm
+try:
+    # Import optional dependencies lazily if available
+    import marimo as _marimo  # type: ignore
+except Exception:
+    _marimo = None
+try:
+    from tqdm import tqdm
+except Exception:
+    tqdm = None  # type: ignore
 from datetime import datetime
 
 from .FileSystem import FileSystem
@@ -89,4 +97,39 @@ class BaseScraper(ABC):
         Returns:
             tqdm progress bar
         """
-        return tqdm(iterable, desc=desc)
+        """
+        Create a progress bar for iterations. Uses Marimo's progress display when available
+        (so that progress renders inside marimo notebooks), otherwise falls back to tqdm.
+
+        Args:
+            iterable: Items to iterate over
+            desc: Description text for progress bar
+
+        Returns:
+            An iterable wrapper which yields items and displays progress via Marimo or tqdm
+        """
+        # Prefer marimo progress if running inside a marimo session and it exposes a progress API
+        try:
+            if _marimo is not None:
+                # Different marimo versions expose different helpers; attempt common ones
+                if hasattr(_marimo, "progress"):
+                    try:
+                        return _marimo.progress(iterable, label=desc)
+                    except TypeError:
+                        # older/newer signatures may use desc instead of label
+                        return _marimo.progress(iterable, desc)
+                if hasattr(_marimo, "progressbar"):
+                    try:
+                        return _marimo.progressbar(iterable, label=desc)
+                    except TypeError:
+                        return _marimo.progressbar(iterable, desc)
+        except Exception:
+            # If anything goes wrong when attempting to use marimo, fall back to tqdm below
+            _marimo = None  # type: ignore
+
+        # Fallback to tqdm if available
+        if tqdm is not None:
+            return tqdm(iterable, desc=desc)
+
+        # Final fallback: return the raw iterable
+        return iterable

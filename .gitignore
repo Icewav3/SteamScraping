@@ -1,3 +1,32 @@
 Data/
-/src/__pycache__
-/__marimo__
+__pycache__/
+__marimo__/
+# Python bytecode and caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Marimo artifacts
+.marimo/
+.marimo-checkpoints/
+
+# Lock files (optional; depends on your workflow)
+uv.lock
+poetry.lock
+
+# Jupyter / notebook spillover (if you also use notebooks)
+.ipynb_checkpoints/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Editor-specific
+.vscode/
+.idea/

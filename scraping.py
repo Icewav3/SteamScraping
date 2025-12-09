@@ -25,10 +25,19 @@ def _():
     import json
     import asyncio
     import aiohttp
-    from tqdm.notebook import tqdm
     import nest_asyncio
     from datetime import datetime
-    return aiohttp, asyncio, datetime, json, nest_asyncio, os, tqdm
+    # Prefer marimo's progress API when running inside marimo; otherwise use tqdm notebooK
+    try:
+        import marimo as _mo
+        try:
+            progress = _mo.progress
+        except Exception:
+            # fallback to tqdm notebook variant
+            from tqdm.notebook import tqdm as progress
+    except Exception:
+        from tqdm.notebook import tqdm as progress
+    return aiohttp, asyncio, datetime, json, nest_asyncio, os, progress
 
 
 @app.cell(hide_code=True)
@@ -236,7 +245,7 @@ def _(
         # Open output file in append mode
         with open(OUTPUT_FILE, 'a', encoding='utf-8') as f:
             # Use tqdm to monitor progress
-            for appid in tqdm(app_ids, desc="Scraping appdetails"):
+            for appid in progress(app_ids, desc="Scraping appdetails"):
                 # Skip if already processed
                 if appid in scraped_ids:
                     continue

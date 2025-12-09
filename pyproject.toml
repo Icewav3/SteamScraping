@@ -8,4 +8,9 @@ dependencies = [
     "aiohttp>=3.13.2",
     "marimo>=0.18.3",
     "tqdm>=4.67.1",
+    "pandas>=2.2.2",
+    "matplotlib>=3.8.0",
+    "seaborn>=0.12.2",
+    "ruff>=0.14.8",
+    "mcp>=1.23.2",
 ]
