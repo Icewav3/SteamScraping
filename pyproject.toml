@@ -13,4 +13,5 @@ dependencies = [
     "seaborn>=0.12.2",
     "ruff>=0.14.8",
     "mcp>=1.23.2",
+    "auto-mix-prep>=0.2.0",
 ]

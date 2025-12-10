@@ -1,52 +1,133 @@
 # Game Industry Market Analysis
 
-This is a ongoing project that is dedicated to attempting to quantify and visualize the market potential
+Quantify and visualize the Steam games market by scraping and analyzing SteamSpy data.
 
----
+## Quick Start
 
-```ps
-uv run marimo
+### Setup
+```powershell
+uv sync
+uv run marimo main.py
 ```
 
 ---
 
-## TODO (keep me updated!)
+## Architecture
 
-### High Priority
-- finish marimo migration by updating `main.py` and `src/*` to utilize built-in marimo functions instead of relying on old methods (IN PROGRESS)
-    - currently marimo does not display the progress bar in the rendered marimo file in browser — fixed by adding marimo-aware progress bar in `BaseScraper.progress_bar` so scrapers will prefer marimo's progress APIs
-    - check documentation before release to ensure following BEST PRACTICES FOR CLEAN CODE
-    - once complete remove un-used dependencies to keep UV clean
+This project follows **Model-View-Controller (MVC)** principles:
+
+### Engine (Model)
+- **`src/core/`** - Abstract base classes and utilities (BaseScraper, RateLimiter)
+- **`src/scrapers/`** - Concrete scraper implementations (SteamSpyScraper)
+- **`src/storage/`** - File I/O operations (FileSystem)
+- **`src/validation/`** - Data integrity validation (DataValidator)
+- **`src/models/`** - Structured data types (ScrapingResult, ValidationResult)
+
+Pure Python modules with **zero marimo dependency** for maximum reusability and testability.
+
+### UI (View/Controller)
+- **`main.py`** - Dashboard entry point
+- **`ui/scraper.py`** - Configure and run scraper
+- **`ui/validator.py`** - Validate scraped data
+- **`ui/visualization.py`** - Analyze and visualize data
+
+Modular marimo apps with reactive UI controls.
+
+---
+
+## Usage
+
+### Running the Dashboard
+```powershell
+uv run marimo main.py
+```
+
+Then access individual modules from the dashboard or run directly:
+```powershell
+uv run marimo ui/scraper.py
+uv run marimo ui/validator.py
+uv run marimo ui/visualization.py
+```
+
+### Validating Data (CLI)
+```powershell
+python validate_data.py --path Data/2025-12-09
+python validate_data.py -p Data/2025-12-09
+```
+
+---
+
+## Project Structure
+
+```
+project-root/
+├── main.py                   # Dashboard entry point
+├── validate_data.py          # CLI data validator
+├── pyproject.toml            # Project dependencies
+│
+├── src/                      # Core engine (pure Python)
+│   ├── __init__.py          # Main exports
+│   ├── core/                # Base classes & utilities
+│   │   ├── scraper.py       # BaseScraper abstract class
+│   │   └── rate_limiter.py  # RateLimiter for API requests
+│   ├── scrapers/            # Concrete scrapers
+│   │   └── steamspy.py      # SteamSpy API scraper
+│   ├── storage/             # File operations
+│   │   └── filesystem.py    # FileSystem manager
+│   ├── validation/          # Data validation
+│   │   └── integrity.py     # DataValidator
+│   └── models/              # Data types
+│       └── types.py         # ScrapingResult, ValidationResult
+│
+├── ui/                      # Marimo UI modules
+│   ├── scraper.py          # Scraper control interface
+│   ├── validator.py        # Data validation interface
+│   └── visualization.py    # Data analysis & visualization
+│
+├── Data/                    # Output data (auto-created)
+│   └── YYYY-MM-DD/          # One folder per scrape date
+│       ├── steamspy_data.jsonl     # Main dataset (JSONL format)
+│       ├── scraped_appids.txt      # List of app IDs scraped
+│       ├── metadata.json           # Scraping metadata
+│       └── steamspy_errors.log     # Error log (if any)
+│
+└── _archived/              # Old notebooks and deprecated files
+```
+
+---
+
+## Data Structure
+
+Each scraping session creates a dated folder with:
+
+- **`steamspy_data.jsonl`** - Raw game data (one JSON object per line)
+- **`scraped_appids.txt`** - Unique app IDs (one per line)
+- **`metadata.json`** - Scraping session metadata
+
+---
+
+## Development
+
+### Add a New Scraper
+1. Create a file in `src/scrapers/` and extend `BaseScraper`
+2. Implement `async def scrape() -> ScrapingResult`
+3. Export in `src/scrapers/__init__.py`
+
+### Extend Validation
+Modify `src/validation/integrity.py` to add custom checks.
+
+### Modify UI
+Edit files in `ui/` folder and import from `src` as needed.
+
+---
+
+## TODO
 
 ### Medium Priority
-- create data integrity checking script to ensure data was collected properly during a scrape - needs to be strict (DONE)
+- Add comparative time-series analysis to visualization module
+- Create data export formats (CSV, Parquet)
 
-New: A data integrity checker is available at `src/data_integrity.py`. Run via:
-
-```powershell
-; python -m src.data_integrity --path Data/2025-11-11
-```
-
-The checker validates presence of files, ensures `steamspy_data.jsonl` is valid JSONL with an `appid` key per line, ensures `scraped_appids.txt` contains unique integers, and verifies a simple metadata structure.
-- create new visualization marimo file to allow for comparitive analysis from data over a time period in Data folder
-
-### Low Priority:
-- Update readme with a table of contents as well as setup instructions
-
-### Long term goals:
-- look online to find other potential data sources to collect from
-    - ensure collection is asynchronus (all run at once)
-
------
-
-
-* OUT OF DATE
-# Project structure:
-project-root/
-├── Data/                       # This folder is created when the script runs
-│   └── YYYY-MM-DD/             # Data from a specific scrape/run date
-│       ├── daily_metadata.json # Logged Metadata from scrape
-│       ├── scraped_appids.txt  # List of items scraped
-│       └── steamspy_data.jsonl # The main dataset (JSON Lines format)
-└── <script_or_notebook>        # The file that creates the 'Data' folder
-
+### Long term goals
+- Integrate additional data sources (Steam Store API, ProtonDB, etc.)
+- Implement asynchronous multi-source collection
+- Add database backend for historical analysis

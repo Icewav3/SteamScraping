@@ -2,7 +2,7 @@ import os
 import tempfile
 import json
 import unittest
-from src.data_integrity import check_folder
+from src.validation import DataValidator
 
 
 class TestDataIntegrity(unittest.TestCase):
@@ -22,14 +22,16 @@ class TestDataIntegrity(unittest.TestCase):
     def test_check_folder_valid(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             self._create_sample_folder(tmp_dir)
-            code = check_folder(tmp_dir)
-            self.assertEqual(code, 0, f"Expected 0, got {code}")
+            validator = DataValidator(tmp_dir)
+            result = validator.validate()
+            self.assertTrue(result.is_valid, f"Expected valid, got errors: {result.errors}")
 
     def test_check_folder_missing_files(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             # don't create files
-            code = check_folder(tmp_dir)
-            self.assertNotEqual(code, 0)
+            validator = DataValidator(tmp_dir)
+            result = validator.validate()
+            self.assertFalse(result.is_valid, "Expected invalid due to missing files")
 
 
 if __name__ == "__main__":
