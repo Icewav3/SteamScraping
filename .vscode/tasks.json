@@ -4,19 +4,11 @@
         {
             "label": "uv: sync dependencies",
             "type": "shell",
-            // The command is simply 'uv sync'
-            "command": "uv sync",
-            "group": "build",
-            // Use the standard PowerShell shell for the task
-            "options": {
-                "shell": {
-                    "executable": "powershell.exe",
-                    "args": ["-c"] // This tells PowerShell to execute the command string
-                }
-            },
+            "command": "uv",
+            "args": ["sync"],
+            "problemMatcher": [],
             "presentation": {
-                "reveal": "always", // Set to 'always' for debugging this issue
-                "panel": "dedicated"
+                "reveal": "silent"
             }
         }
     ]

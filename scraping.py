@@ -1,6 +1,17 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "aiohttp>=3.13.2",
+#     "marimo>=0.17.0",
+#     "nest-asyncio>=1.6.0",
+#     "pyzmq>=27.1.0",
+#     "tqdm>=4.67.1",
+# ]
+# ///
+
 import marimo
 
-__generated_with = "0.18.3"
+__generated_with = "0.18.4"
 app = marimo.App()
 
 
@@ -184,7 +195,7 @@ def _(BASE_URL, appdetails_rate_limiter, log_error):
     async def fetch_app_details(session, appid):
         """Fetch details for a single app using the rate limiter."""
         params = {"request": "appdetails", "appid": appid}
-    
+
         # Wait for token before doing the request.
         async with appdetails_rate_limiter:
             try:
@@ -288,26 +299,6 @@ def _(mo):
 @app.cell
 async def _(STEAMSPY_PAGES, scrape_all):
     await scrape_all(max_pages=STEAMSPY_PAGES)
-    return
-
-
-@app.cell(hide_code=True)
-def _(mo):
-    mo.md(r"""
-    ## TODO Meta data creation
-    """)
-    return
-
-
-@app.cell
-def _():
-    #todo meta data json
-    #save:
-    #Parameters the program was ran with (amount of pages to scrape)
-    #total unique appids scraped
-    #exact date time started and finished
-    #time and date for each start/stop if not done in one execution
-    #total time taken to scrape
     return
 
 

@@ -1,6 +1,16 @@
+# /// script
+# requires-python = ">=3.13"
+# dependencies = [
+#     "aiohttp>=3.13.2",
+#     "marimo>=0.17.0",
+#     "pyzmq>=27.1.0",
+#     "tqdm>=4.67.1",
+# ]
+# ///
+
 import marimo
 
-__generated_with = "0.18.3"
+__generated_with = "0.18.4"
 app = marimo.App()
 
 
@@ -10,6 +20,12 @@ def _(mo):
     # SteamSpy Scraper
     """)
     return
+
+
+@app.cell
+def _():
+    import marimo as mo
+    return (mo,)
 
 
 @app.cell(hide_code=True)
@@ -48,14 +64,5 @@ async def _(FileSystem, SteamSpyScraper):
     return
 
 
-@app.cell
-def _():
-    import marimo as mo
-    return (mo,)
-
-
 if __name__ == "__main__":
     app.run()
-
-
-
