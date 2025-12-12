@@ -41,8 +41,9 @@ class SteamSpyScraper(BaseScraper):
     
     def __init__(self, filesystem: FileSystem, 
                  pages: int = 10,
-                 page_delay: float = 60.0,
-                 app_delay: float = 0.1):
+                 page_delay: float = 5.0,
+                 app_delay: float = 0.1,
+                 suppress_output: bool = False):
         """
         Initialize SteamSpy scraper.
         
@@ -51,8 +52,9 @@ class SteamSpyScraper(BaseScraper):
             pages: Number of pages to scrape (~1000 apps each)
             page_delay: Seconds to wait between page requests
             app_delay: Seconds to wait between app detail requests
+            suppress_output: If True, suppress print statements
         """
-        super().__init__(filesystem)
+        super().__init__(filesystem, suppress_output=suppress_output)
         
         self.base_url = "https://steamspy.com/api.php"
         self.pages = pages
@@ -116,9 +118,12 @@ class SteamSpyScraper(BaseScraper):
                 self.log_error(f"App {appid}: {e}", self.error_file)
                 return None
     
-    async def scrape(self) -> int:
+    async def scrape(self, progress_callback=None) -> int:
         """
         Scrape SteamSpy data for configured number of pages.
+        
+        Args:
+            progress_callback: Optional callback(current, total, desc) for progress updates
         
         Returns:
             Total number of apps scraped
@@ -127,11 +132,11 @@ class SteamSpyScraper(BaseScraper):
         scraped_ids = self.load_progress(self.progress_file)
         
         for page in range(self.pages):
-            print(f"\nFetching app list from page {page}...")
+            self._print(f"\nFetching app list from page {page}...")
             apps = await self._get_all_apps(page)
             
             if not apps:
-                print(f"Warning: No apps returned for page {page}")
+                self._print(f"Warning: No apps returned for page {page}")
                 continue
             
             # Get app IDs from the response
@@ -139,7 +144,10 @@ class SteamSpyScraper(BaseScraper):
             new_count = 0
             
             # Scrape details for each app
-            for appid in self.progress_bar(app_ids, f"Page {page} apps"):
+            for i, appid in enumerate(app_ids):
+                if progress_callback:
+                    progress_callback(i, len(app_ids), f"Page {page}")
+                
                 # Skip if already scraped
                 if str(appid) in scraped_ids:
                     continue
@@ -150,12 +158,12 @@ class SteamSpyScraper(BaseScraper):
                     self.save_progress(str(appid), self.progress_file)
                     new_count += 1
             
-            print(f"Page {page} - New apps scraped: {new_count}")
+            self._print(f"Page {page} - New apps scraped: {new_count}")
             total_scraped += new_count
             
             # Wait between pages (except last page)
             if page < self.pages - 1 and new_count > 0:
-                print(f"Waiting {self.page_delay} seconds...")
+                self._print(f"Waiting {self.page_delay} seconds...")
                 await asyncio.sleep(self.page_delay)
         
         # Save metadata

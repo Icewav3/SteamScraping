@@ -54,13 +54,18 @@ def _(mo):
 
 
 @app.cell
-async def _(FileSystem, SteamSpyScraper):
+async def _(FileSystem, SteamSpyScraper, mo):
     fs = FileSystem(data_dir="Data")
 
-    # Create and run scraper
-    async with SteamSpyScraper(fs, pages=10, page_delay=15, app_delay=0.1) as scraper:
-        total = await scraper.scrape()
-        print(f"\n✓ Complete! Scraped {total} apps")
+    with mo.status.progress_bar(total=10, title="Scraping SteamSpy") as bar:
+        def progress_callback(current, total, label):
+            """Update progress bar subtitle."""
+            bar.update(subtitle=f"{label}: {current}/{total}")
+
+        async with SteamSpyScraper(fs, pages=10, page_delay=15, app_delay=0.1, suppress_output=True) as scraper:
+            total = await scraper.scrape(progress_callback=progress_callback)
+
+    print(f"✓ Complete! Scraped {total} apps")
     return
 
 

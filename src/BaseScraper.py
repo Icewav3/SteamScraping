@@ -5,7 +5,7 @@ import asyncio
 from abc import ABC, abstractmethod
 from typing import Optional, Set
 import aiohttp
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from datetime import datetime
 
 from .FileSystem import FileSystem
@@ -14,16 +14,23 @@ from .FileSystem import FileSystem
 class BaseScraper(ABC):
     """Base class for all web scrapers."""
     
-    def __init__(self, filesystem: FileSystem):
+    def __init__(self, filesystem: FileSystem, suppress_output: bool = False):
         """
         Initialize scraper with filesystem.
         
         Args:
             filesystem: FileSystem instance for I/O operations
+            suppress_output: If True, suppress print statements
         """
         self.fs = filesystem
         self.session: Optional[aiohttp.ClientSession] = None
         self.start_time = datetime.now()
+        self.suppress_output = suppress_output
+    
+    def _print(self, *args, **kwargs):
+        """Print only if output is not suppressed."""
+        if not self.suppress_output:
+            print(*args, **kwargs)
     
     async def __aenter__(self):
         """Async context manager entry - create session."""
