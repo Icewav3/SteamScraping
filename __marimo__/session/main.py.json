@@ -1,0 +1,99 @@
+{
+  "version": "1",
+  "metadata": {
+    "marimo_version": "0.18.3"
+  },
+  "cells": [
+    {
+      "id": "Hbol",
+      "code_hash": "00be0d154a44e9c270fc5e75e97e2c2c",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h1 id=\"steamspy-scraper\">SteamSpy Scraper</h1></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "MJUe",
+      "code_hash": "ae7547cc4d82972b5db59e7c7400fc48",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"setup\">Setup</h2></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "lEQa",
+      "code_hash": "a7f2a210a1b5cec5f443e0784d6d5214",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/markdown": "<span class=\"markdown prose dark:prose-invert contents\"><h2 id=\"run-scraper\">Run Scraper</h2></span>"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "vblA",
+      "code_hash": "ba06eba14c70d9e4fe2e0bf30224572f",
+      "outputs": [
+        {
+          "type": "error",
+          "ename": "internal",
+          "evalue": "An internal error occurred: 908ef87b-6eb2-47f4-8e1c-d5de4e6f2db7",
+          "traceback": []
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "bkHC",
+      "code_hash": "5a49bb8fe7735c3e5a8dfc5fbdc04b7e",
+      "outputs": [
+        {
+          "type": "error",
+          "ename": "internal",
+          "evalue": "An internal error occurred: d13f18dd-e7cf-41bd-8137-e401067c2983",
+          "traceback": []
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "PKri",
+      "code_hash": "f8cb83df09ddba0cdb0ed8ac7f2d9ff6",
+      "outputs": [
+        {
+          "type": "error",
+          "ename": "internal",
+          "evalue": "An internal error occurred: 1d10cd3d-4ee0-4aa7-9fbb-5a054e1da6fd",
+          "traceback": []
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "Xref",
+      "code_hash": "1d0db38904205bec4d6f6f6a1f6cec3e",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    }
+  ]
+}

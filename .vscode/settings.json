@@ -1,5 +1,6 @@
 {
-    "python-envs.defaultEnvManager": "ms-python.python:conda",
-    "python-envs.defaultPackageManager": "ms-python.python:conda",
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+    "marimo.marimoPath": "uv run marimo",
+    "marimo.sandbox": true,
     "python-envs.pythonProjects": []
 }

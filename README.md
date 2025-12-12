@@ -1,23 +1,39 @@
-# This is a ongoing project that is dedicated to attempting to quantify and visualize the market potential
+# Game Industry Market Analysis
+
+This is a ongoing project that is dedicated to attempting to quantify and visualize the market potential
+
+---
+
+```ps
+
+
+```
 
 
 
-## TODO (ENSURE THIS IS KEPT UP TO DATE)
+## TODO (keep me updated!)
 
-- meta data json implementation
-    - see details in scraping.ipynb
-    - allow for (not perfect) metadata generation of old scrapes as best as possible
-- abstract scraper functionality to allow for other sources beyond steamspy
-    - create .py files to clean up jupyter notebook and move into seperate folder
-    - add a jupyter notebook file called main.ipynb that handles running all scraping tasks
-- create new visualization notebook to allow for comparitive analysis from data over a time period in Data folder
-- move all visualzation code to a seperate folder, abstract what is possible to keep code clean
-- create requirements.txt file for easy package installation
-- create setup.py file for easy installation of package
-- update project structure in readme to reflect new structure after abstraction
+### High Priority
+- finish marimo migration by updating main.py to utilize built in marimo functions instead of relying on old methods
+    - currently marimo does not display the progress bar in the rendered marimo file in browser.
+    - check documentation before this to ensure following BEST PRACTICES FOR CLEAN CODE
+    - once complete remove un-used dependancies to keep UV clean
+
+### Medium Priority
+- create data integrity checking script to ensure data was collected properly during a scrape - needs to be strict
+- create new visualization marimo file to allow for comparitive analysis from data over a time period in Data folder
+
+### Low Priority:
+- Update readme with a table of contents as well as setup instructions
+
+### Long term goals:
+- look online to find other potential data sources to collect from
+    - ensure collection is asynchronus (all run at once)
+
+-----
 
 
-
+* OUT OF DATE
 # Project structure:
 project-root/
 ├── Data/                       # This folder is created when the script runs

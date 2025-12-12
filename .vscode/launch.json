@@ -1,0 +1,94 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run Marimo main.py (Dev Mode)",
+            "type": "python",
+            "request": "launch",
+            "module": "marimo",
+            "args": [
+                "edit",
+                "main.py",
+                "--sandbox",
+                "--port",
+                "8888",
+                "--host",
+                "localhost"
+            ],
+            "preLaunchTask": "uv: sync dependencies",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "MARIMO_OUTPUT_MAX_BYTES": "10000000"  // Increase output size limit if needed
+            }
+        },
+        {
+            "name": "Run Marimo Sandboxed (Current File)",
+            "type": "python",
+            "request": "launch",
+            "module": "marimo",
+            "args": [
+                "edit",
+                "${file}",
+                "--sandbox",
+                "--port",
+                "8888"
+            ],
+            "preLaunchTask": "uv: sync dependencies",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "UV_NO_SYNC": "1"  // Skip dependency sync prompts
+            }
+        },
+        {
+            "name": "Run Marimo as App (Production)",
+            "type": "python",
+            "request": "launch",
+            "module": "marimo",
+            "args": [
+                "run",
+                "${file}",
+                "--port",
+                "8080",
+                "--host",
+                "0.0.0.0",  // Allow external connections
+                "--headless"
+            ],
+            "preLaunchTask": "uv: sync dependencies",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Run Marimo with Watch Mode",
+            "type": "python",
+            "request": "launch",
+            "module": "marimo",
+            "args": [
+                "edit",
+                "${file}",
+                "--watch",  // Auto-reload on external file changes
+                "--port",
+                "8888"
+            ],
+            "preLaunchTask": "uv: sync dependencies",
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+        {
+            "name": "Debug Marimo Notebook",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "marimo",
+            "args": [
+                "edit",
+                "${file}",
+                "--port",
+                "8888"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,  // Can step into marimo code
+            "preLaunchTask": "uv: sync dependencies"
+        }
+    ]
+}
