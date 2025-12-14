@@ -120,7 +120,7 @@ uv --version
 
 ```bash
 # Clone the repository
-git clone <your-repo-url>
+git clone https://github.com/Icewav3/SteamScraping
 cd steamscraping
 ```
 

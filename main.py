@@ -54,15 +54,33 @@ def _(mo):
 
 
 @app.cell
-async def _(FileSystem, SteamSpyScraper, mo):
-    fs = FileSystem(data_dir="Data")
+def _(mo):
+    user_pages = mo.ui.number(start=1, stop=100, step=1, value=10, label="Pages")
+    user_page_delay = mo.ui.number(start=0.0, stop=15.0, step=0.1, value=5.0, label="Page Delay (s)")
+    user_app_delay = mo.ui.number(start=0.0, stop=10.0, step=0.1, value=0.1, label="App Delay (s)")
 
-    with mo.status.progress_bar(total=10, title="Scraping SteamSpy") as bar:
+    mo.vstack([user_pages, user_page_delay, user_app_delay])
+    return user_app_delay, user_page_delay, user_pages
+
+
+@app.cell
+async def _(
+    FileSystem,
+    SteamSpyScraper,
+    mo,
+    user_app_delay,
+    user_page_delay,
+    user_pages,
+):
+    fs = FileSystem(data_dir="Data")
+    SteamspyEnteriesPerPage = 1000
+    TotalEntriesToScrape = user_pages.value * SteamspyEnteriesPerPage
+    with mo.status.progress_bar(total=10*SteamspyEnteriesPerPage, title="Scraping SteamSpy") as bar:
         def progress_callback(current, total, label):
             """Update progress bar subtitle."""
-            bar.update(subtitle=f"{label}: {current}/{total}")
+            bar.update(subtitle=f"{label}: {1+current}/{total}")
 
-        async with SteamSpyScraper(fs, pages=10, page_delay=15, app_delay=0.1, suppress_output=True) as scraper:
+        async with SteamSpyScraper(fs, pages=user_pages.value, page_delay=user_page_delay.value, app_delay=user_app_delay.value, suppress_output=True) as scraper:
             total = await scraper.scrape(progress_callback=progress_callback)
 
     print(f"✓ Complete! Scraped {total} apps")
