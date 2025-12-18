@@ -1,0 +1,254 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 🎮 STEAMSPY SCRAPER - Reusable Workflow
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Scrapes game data from SteamSpy API and saves it locally with proper
+# error handling and progress tracking.
+#
+# This is a REUSABLE workflow - it can be called by other workflows.
+#
+# ═══════════════════════════════════════════════════════════════════════════
+
+name: 🎮 SteamSpy Scraper
+
+on:
+  # Allow this workflow to be called by other workflows
+  workflow_call:
+    inputs:
+      pages:
+        description: 'Number of pages to scrape (~1000 apps each)'
+        required: false
+        default: "10"
+        type: string
+      
+      page_delay:
+        description: 'Seconds to wait between page requests'
+        required: false
+        default: "15"
+        type: string
+      
+      app_delay:
+        description: 'Seconds to wait between app detail requests'
+        required: false
+        default: "0.1"
+        type: string
+    
+    outputs:
+      games_scraped:
+        description: 'Number of games scraped'
+        value: ${{ jobs.scrape.outputs.total_games }}
+      
+      data_size:
+        description: 'Size of scraped data'
+        value: ${{ jobs.scrape.outputs.data_size }}
+
+  # Also allow manual execution for testing
+  workflow_dispatch:
+    inputs:
+      pages:
+        description: 'Number of pages to scrape'
+        required: false
+        default: "10"
+        type: string
+
+jobs:
+  scrape:
+    name: Scraping SteamSpy Data
+    runs-on: ubuntu-latest
+    timeout-minutes: 120  # 2 hour timeout
+    
+    outputs:
+      total_games: ${{ steps.stats.outputs.games }}
+      data_size: ${{ steps.stats.outputs.size }}
+    
+    steps:
+      # ─────────────────────────────────────────────────────────────────────
+      # SETUP
+      # ─────────────────────────────────────────────────────────────────────
+      
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      
+      - name: 📦 Install UV Package Manager
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: | 
+            uv-${{ runner.os }}-
+
+      
+      - name: 🔧 Install Dependencies
+        run: uv sync
+      
+      # ─────────────────────────────────────────────────────────────────────
+      # SCRAPING
+      # ─────────────────────────────────────────────────────────────────────
+      
+      - name: 🚀 Run SteamSpy Scraper
+        id: scraper
+        run: |
+          echo "🎮 Starting SteamSpy scraper..."
+          echo "📄 Pages to scrape: ${{ inputs.pages }}"
+          echo "⏱️ Page delay: ${{ inputs.page_delay }}s"
+          echo "⚡ App delay: ${{ inputs.app_delay }}s"
+          echo ""
+          
+          # Create Python script to run scraper
+          cat > run_scraper.py << 'EOF'
+          import asyncio
+          import sys
+          from pathlib import Path
+          
+          # Add src to path
+          sys.path.insert(0, str(Path(__file__).parent))
+          
+          from src.FileSystem import FileSystem
+          from src.SteamSpyScraper import SteamSpyScraper
+          
+          async def main():
+              fs = FileSystem(data_dir="Data")
+              
+              async with SteamSpyScraper(
+                  fs,
+                  pages=int("${{ inputs.pages }}"),
+                  page_delay=float("${{ inputs.page_delay }}"),
+                  app_delay=float("${{ inputs.app_delay }}"),
+                  suppress_output=False
+              ) as scraper:
+                  total = await scraper.scrape()
+              
+              print(f"\n✅ Scraping complete! Total games: {total}")
+              return total
+          
+          if __name__ == "__main__":
+              total_games = asyncio.run(main())
+              # Save for later steps
+              with open("scraper_stats.txt", "w") as f:
+                  f.write(str(total_games))
+          EOF
+          
+          # Run the scraper
+          uv run python run_scraper.py
+        continue-on-error: false
+      
+      # ─────────────────────────────────────────────────────────────────────
+      # VALIDATION & STATS
+      # ─────────────────────────────────────────────────────────────────────
+      
+      - name: 📊 Calculate Statistics
+        id: stats
+        run: |
+          # Get today's data directory
+            DATA_PATH=$(find Data -mindepth 1 -maxdepth 1 -type d | head -n 1)
+
+            if [ -z "$DATA_PATH" ]; then
+              echo "❌ Error: No data directory found!"
+              exit 1
+            fi
+
+          # Count games from JSONL file
+          if [ -f "$DATA_PATH/steamspy_data.jsonl" ]; then
+            GAME_COUNT=$(wc -l < "$DATA_PATH/steamspy_data.jsonl")
+          else
+            GAME_COUNT=0
+          fi
+          
+          # Calculate data size
+          DATA_SIZE=$(du -sh "$DATA_PATH" | cut -f1)
+          
+          echo "games=$GAME_COUNT" >> $GITHUB_OUTPUT
+          echo "size=$DATA_SIZE" >> $GITHUB_OUTPUT
+          
+          echo "📊 Statistics:"
+          echo "  • Games scraped: $GAME_COUNT"
+          echo "  • Data size: $DATA_SIZE"
+          echo "  • Location: $DATA_PATH"
+      
+      - name: ✅ Validate Data Quality
+        run: |
+          TODAY=$(date +%Y-%m-%d)
+          DATA_FILE="Data/$TODAY/steamspy_data.jsonl"
+          
+          if [ ! -f "$DATA_FILE" ]; then
+            echo "❌ Data file not found!"
+            exit 1
+          fi
+          
+          # Check if file is not empty
+          if [ ! -s "$DATA_FILE" ]; then
+            echo "❌ Data file is empty!"
+            exit 1
+          fi
+          
+          # Validate JSON format (first line)
+          if ! head -n 1 "$DATA_FILE" | python -m json.tool > /dev/null 2>&1; then
+            echo "❌ Invalid JSON format!"
+            exit 1
+          fi
+          
+          echo "✅ Data validation passed!"
+      
+      # ─────────────────────────────────────────────────────────────────────
+      # ARTIFACT UPLOAD
+      # ─────────────────────────────────────────────────────────────────────
+      
+      - name: 📦 Upload Raw Data as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: steamspy-data-raw
+          path: Data/
+          retention-days: 7  # Keep for 7 days (or until compressed)
+          compression-level: 0  # No compression (done in next phase)
+      
+      # ─────────────────────────────────────────────────────────────────────
+      # SUMMARY
+      # ─────────────────────────────────────────────────────────────────────
+      
+      - name: 📝 Generate Job Summary
+        if: always()
+        run: |
+          TODAY=$(date +%Y-%m-%d)
+          
+          echo "## 🎮 SteamSpy Scraper Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "scraper_stats.txt" ]; then
+            GAMES=$(cat scraper_stats.txt)
+            echo "✅ **Status:** Success" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "### 📊 Statistics" >> $GITHUB_STEP_SUMMARY
+            echo "- **Games Scraped:** $GAMES" >> $GITHUB_STEP_SUMMARY
+            echo "- **Data Size:** ${{ steps.stats.outputs.size }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **Date:** $TODAY" >> $GITHUB_STEP_SUMMARY
+            echo "- **Pages Requested:** ${{ inputs.pages }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Status:** Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ⚙️ Configuration" >> $GITHUB_STEP_SUMMARY
+          echo "- Page Delay: ${{ inputs.page_delay }}s" >> $GITHUB_STEP_SUMMARY
+          echo "- App Delay: ${{ inputs.app_delay }}s" >> $GITHUB_STEP_SUMMARY
+      
+      # ─────────────────────────────────────────────────────────────────────
+      # ERROR HANDLING
+      # ─────────────────────────────────────────────────────────────────────
+      
+      - name: 📋 Upload Error Logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: steamspy-error-logs
+          path: Data/**/steamspy_errors.log
+          if-no-files-found: ignore
+          retention-days: 30

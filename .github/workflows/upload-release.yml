@@ -1,0 +1,358 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 📤 GITHUB RELEASE PUBLISHER - Reusable Workflow
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Publishes compressed data archives to GitHub Releases. This workflow
+# intelligently updates existing releases or creates new ones as needed.
+#
+# Benefits of GitHub Releases for data storage:
+# - ✅ Unlimited storage for release assets
+# - ✅ Fast CDN-backed downloads
+# - ✅ Built-in version control
+# - ✅ Public accessibility
+# - ✅ No external authentication needed
+#
+# ═══════════════════════════════════════════════════════════════════════════
+
+name: 📤 Upload to GitHub Release
+
+on:
+  workflow_call:
+    inputs:
+      release_strategy:
+        description: 'Release strategy: daily, weekly, or latest'
+        required: false
+        default: 'daily'
+        type: string
+    
+    outputs:
+      release_url:
+        description: 'URL of the created/updated release'
+        value: ${{ jobs.upload.outputs.release_url }}
+      
+      release_tag:
+        description: 'Git tag of the release'
+        value: ${{ jobs.upload.outputs.release_tag }}
+
+  workflow_dispatch:
+    inputs:
+      release_strategy:
+        description: 'Release strategy'
+        required: false
+        default: 'daily'
+        type: choice
+        options:
+          - daily
+          - weekly
+          - latest
+
+jobs:
+  upload:
+    name: Publishing to Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 3 # should not be longer than 3 minutes
+    permissions:
+      contents: write
+    
+    outputs:
+      release_url: ${{ steps.release.outputs.url }}
+      release_tag: ${{ steps.prepare.outputs.tag }}
+    
+    steps:
+      # ─────────────────────────────────────────────────────────────────────
+      # SETUP
+      # ─────────────────────────────────────────────────────────────────────
+      
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for proper tagging
+      
+      - name: 📥 Download Compressed Archive
+        uses: actions/download-artifact@v4
+        with:
+          name: compressed-data-archive
+          path: ./artifacts/
+      
+      - name: 📥 Download Metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: archive-metadata
+          path: ./artifacts/
+      
+      # ─────────────────────────────────────────────────────────────────────
+      # PREPARE RELEASE
+      # ─────────────────────────────────────────────────────────────────────
+      
+      - name: 🏷️ Determine Release Tag & Name
+        id: prepare
+        run: |
+          TODAY=$(date +%Y-%m-%d)
+          STRATEGY="${{ inputs.release_strategy || 'daily' }}"
+          
+          case "$STRATEGY" in
+            daily)
+              TAG="data-$TODAY"
+              RELEASE_NAME="Game Data Snapshot - $TODAY"
+              IS_PRERELEASE="false"
+              ;;
+            weekly)
+              WEEK=$(date +%Y-W%V)
+              TAG="data-$WEEK"
+              RELEASE_NAME="Game Data Weekly - $WEEK"
+              IS_PRERELEASE="false"
+              ;;
+            latest)
+              TAG="data-latest"
+              RELEASE_NAME="Latest Game Data"
+              IS_PRERELEASE="false"
+              ;;
+          esac
+          
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "name=$RELEASE_NAME" >> $GITHUB_OUTPUT
+          echo "is_prerelease=$IS_PRERELEASE" >> $GITHUB_OUTPUT
+          
+          echo "🏷️ Release Configuration:"
+          echo "  • Tag: $TAG"
+          echo "  • Name: $RELEASE_NAME"
+          echo "  • Strategy: $STRATEGY"
+      
+      # ─────────────────────────────────────────────────────────────────────
+      # GENERATE RELEASE NOTES
+      # ─────────────────────────────────────────────────────────────────────
+      
+      - name: 📝 Generate Release Notes
+        id: notes
+        run: |
+          TODAY=$(date +%Y-%m-%d)
+          
+          # Read metadata if available
+          if [ -f "artifacts/archive-metadata.json" ]; then
+            ARCHIVE_NAME=$(jq -r '.archive_name' artifacts/archive-metadata.json)
+            COMPRESSED_SIZE=$(jq -r '.compressed_size_mb' artifacts/archive-metadata.json)
+            COMPRESSION_RATIO=$(jq -r '.compression_ratio' artifacts/archive-metadata.json)
+          else
+            ARCHIVE_NAME=$(ls artifacts/*.tar.gz | head -1 | xargs basename)
+            COMPRESSED_SIZE="Unknown"
+            COMPRESSION_RATIO="Unknown"
+          fi
+          
+          # Create release notes
+          cat > release-notes.md << EOF
+          # 🎮 Game Market Data Collection
+          
+          **Collection Date:** $TODAY
+          
+          ## 📊 Dataset Information
+          
+          This release contains comprehensive gaming market data collected from multiple sources:
+          
+          ### 📦 What's Included
+          
+          - **SteamSpy Data**: Community-driven statistics for Steam games
+          - **Metadata**: Collection timestamps, source information, validation results
+          - **Checksums**: MD5 and SHA256 for data integrity verification
+          
+          ### 📈 Statistics
+          
+          | Metric | Value |
+          |--------|-------|
+          | **Archive Name** | \`$ARCHIVE_NAME\` |
+          | **Compressed Size** | $COMPRESSED_SIZE MB |
+          | **Compression Ratio** | $COMPRESSION_RATIO |
+          | **Collection Date** | $TODAY |
+          | **GitHub Run** | [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) |
+          
+          ## 📥 Download & Usage
+          
+          ### Quick Download
+          
+          \`\`\`bash
+          # Download the archive
+          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.prepare.outputs.tag }}/$ARCHIVE_NAME
+          
+          # Verify integrity (optional)
+          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.prepare.outputs.tag }}/${ARCHIVE_NAME}.sha256
+          sha256sum -c ${ARCHIVE_NAME}.sha256
+          
+          # Extract
+          tar -xzf $ARCHIVE_NAME
+          \`\`\`
+          
+          ### Python Usage
+          
+          \`\`\`python
+          import pandas as pd
+          
+          # Read the data
+          df = pd.read_json('Data/[date]/steamspy_data.jsonl', lines=True)
+          
+          # Analyze
+          print(f"Total games: {len(df)}")
+          print(df['genre'].value_counts())
+          \`\`\`
+          
+          ## 🔐 Data Integrity
+          
+          All archives include checksums for verification:
+          - **MD5**: For quick verification
+          - **SHA256**: For cryptographic verification
+          
+          ## 📚 Documentation
+          
+          - [Project README](https://github.com/${{ github.repository }}/blob/main/README.md)
+          - [Visualization Dashboard](https://github.com/${{ github.repository }}/blob/main/visualization.py)
+          - [Data Collection Pipeline](https://github.com/${{ github.repository }}/blob/main/.github/workflows/pipeline.yml)
+          
+          ## 🤝 Contributing
+          
+          Found an issue? Want to contribute? Check out our [GitHub repository](${{ github.server_url }}/${{ github.repository }})!
+          
+          ---
+          
+          *Automated collection by GitHub Actions | Data from SteamSpy*
+          EOF
+          
+          echo "📄 Release notes generated"
+      
+      # ─────────────────────────────────────────────────────────────────────
+      # CHECK FOR EXISTING RELEASE
+      # ─────────────────────────────────────────────────────────────────────
+      
+      - name: 🔍 Check for Existing Release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.prepare.outputs.tag }}"
+          
+          # Check if release exists
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "ℹ️ Release $TAG already exists - will update"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "✨ Release $TAG does not exist - will create"
+          fi
+      
+      # ─────────────────────────────────────────────────────────────────────
+      # DELETE OLD RELEASE (if updating 'latest')
+      # ─────────────────────────────────────────────────────────────────────
+      
+      - name: 🗑️ Delete Old Release Assets
+        if: steps.check.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.prepare.outputs.tag }}"
+          
+          echo "🗑️ Cleaning up old assets for $TAG..."
+          
+          # Delete existing release (will recreate with new assets)
+          gh release delete "$TAG" --yes || true
+          
+          # Delete tag
+          git push origin :refs/tags/"$TAG" || true
+          
+          echo "✅ Cleanup complete"
+      
+      # ─────────────────────────────────────────────────────────────────────
+      # CREATE/UPDATE RELEASE
+      # ─────────────────────────────────────────────────────────────────────
+      
+      - name: 🚀 Create GitHub Release
+        id: release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.prepare.outputs.tag }}
+          name: ${{ steps.prepare.outputs.name }}
+          body_path: release-notes.md
+          draft: false
+          prerelease: ${{ steps.prepare.outputs.is_prerelease }}
+          files: |
+            artifacts/*.tar.gz
+            artifacts/*.md5
+            artifacts/*.sha256
+            artifacts/*.json
+          fail_on_unmatched_files: true
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      # ─────────────────────────────────────────────────────────────────────
+      # VERIFICATION
+      # ─────────────────────────────────────────────────────────────────────
+      
+      - name: ✅ Verify Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.prepare.outputs.tag }}"
+          
+          echo "🔍 Verifying release..."
+          
+          # Get release info
+          gh release view "$TAG" --json url,assets
+          
+          # Count assets
+          ASSET_COUNT=$(gh release view "$TAG" --json assets --jq '.assets | length')
+          
+          echo ""
+          echo "✅ Release verified!"
+          echo "  • Tag: $TAG"
+          echo "  • Assets: $ASSET_COUNT"
+          echo "  • URL: ${{ steps.release.outputs.url }}"
+      
+      # ─────────────────────────────────────────────────────────────────────
+      # CLEANUP OLD RELEASES (Optional)
+      # ─────────────────────────────────────────────────────────────────────
+      
+      - name: 🧹 Cleanup Old Daily Releases
+        if: inputs.release_strategy == 'daily'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "🧹 Cleaning up old releases..."
+          
+          # Keep last 30 daily releases, delete older ones
+          gh release list --limit 100 | grep "^data-20" | tail -n +31 | while read -r line; do
+            TAG=$(echo "$line" | awk '{print $1}')
+            echo "  Deleting old release: $TAG"
+            gh release delete "$TAG" --yes || true
+          done
+          
+          echo "✅ Cleanup complete"
+      
+      # ─────────────────────────────────────────────────────────────────────
+      # SUMMARY
+      # ─────────────────────────────────────────────────────────────────────
+      
+      - name: 📝 Generate Job Summary
+        run: |
+          TAG="${{ steps.prepare.outputs.tag }}"
+          RELEASE_URL="${{ steps.release.outputs.url }}"
+          
+          echo "## 📤 GitHub Release Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Status:** Success" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 🎯 Release Details" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag:** \`$TAG\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Name:** ${{ steps.prepare.outputs.name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **URL:** [$RELEASE_URL]($RELEASE_URL)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Strategy:** ${{ inputs.release_strategy || 'daily' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Published Assets" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Compressed data archive (.tar.gz)" >> $GITHUB_STEP_SUMMARY
+          echo "- MD5 checksum (.md5)" >> $GITHUB_STEP_SUMMARY
+          echo "- SHA256 checksum (.sha256)" >> $GITHUB_STEP_SUMMARY
+          echo "- Collection metadata (.json)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📥 Download Command" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
+          echo "gh release download $TAG -R ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

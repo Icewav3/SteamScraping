@@ -1,0 +1,181 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# 🎮 GAME MARKET DATA COLLECTION PIPELINE - MAIN ORCHESTRATOR
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# This is the main workflow that orchestrates all data collection tasks.
+# It ensures proper execution order and dependency management.
+#
+# Execution Order:
+#   1. Scrape Phase (parallel execution of all scrapers)
+#   2. Compression Phase (waits for all scrapers)
+#   3. Upload Phase (parallel upload to multiple destinations)
+#
+# ═══════════════════════════════════════════════════════════════════════════
+
+name: 🚀 Data Collection Pipeline
+
+on:
+  # Scheduled execution
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+    # - cron: '0 2 * * 0'  # Weekly on Sunday (uncomment if preferred)
+  
+  # Manual trigger with configuration options
+  workflow_dispatch:
+    inputs:
+      run_scrapers:
+        description: 'Run scraping tasks'
+        required: true
+        default: true
+        type: boolean
+      
+      steamspy_pages:
+        description: 'SteamSpy pages to scrape'
+        required: false
+        default: '10'
+        type: string
+      
+      steamspy_page_delay:
+        description: 'Delay between SteamSpy page requests (seconds)'
+        required: false
+        default: '0'
+        type: string
+
+      steamspy_app_delay:
+        description: 'Delay between SteamSpy app detail requests (seconds)'
+        required: false
+        default: '0'
+        type: string
+
+      skip_upload:
+        description: 'Skip upload phase (testing only)'
+        required: false
+        default: false
+        type: boolean
+
+# Global environment variables
+env:
+  DATA_DIR: 'Data'
+  PYTHON_VERSION: '3.13'
+
+jobs:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PHASE 1: SCRAPING (Parallel Execution)
+  # ═══════════════════════════════════════════════════════════════════════════
+  
+  scrape-steamspy:
+    name: 🎮 SteamSpy Scraper
+    if: ${{ github.event.inputs.run_scrapers != 'false' }}
+    uses: ./.github/workflows/scrape-steamspy.yml
+    secrets: inherit
+    with:
+      pages: ${{ github.event.inputs.steamspy_pages || '10' }}
+      page_delay: ${{ github.event.inputs.steamspy_page_delay || '0' }}
+      app_delay: ${{ github.event.inputs.steamspy_app_delay || '0' }}
+  
+  # ─────────────────────────────────────────────────────────────────────────
+  # 🔮 FUTURE SCRAPERS - Add new scrapers here
+  # ─────────────────────────────────────────────────────────────────────────
+  # 
+  # scrape-igdb:
+  #   name: 🎯 IGDB Scraper
+  #   if: ${{ github.event.inputs.run_scrapers != 'false' }}
+  #   uses: ./.github/workflows/scrape-igdb.yml
+  #   secrets: inherit
+  #   with:
+  #     max_games: 1000
+  #
+  # scrape-rawg:
+  #   name: 🌐 RAWG Scraper
+  #   uses: ./.github/workflows/scrape-rawg.yml
+  #   secrets: inherit
+  #
+  # scrape-freetogame:
+  #   name: 🎁 FreeToGame Scraper
+  #   uses: ./.github/workflows/scrape-freetogame.yml
+  #   secrets: inherit
+  # ─────────────────────────────────────────────────────────────────────────
+  
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PHASE 2: COMPRESSION (Waits for all scrapers)
+  # ═══════════════════════════════════════════════════════════════════════════
+  
+  compress-data:
+    name: 📦 Compress Data
+    needs: 
+      - scrape-steamspy
+      # Add future scrapers here as dependencies
+      # - scrape-igdb
+      # - scrape-rawg
+      # - scrape-freetogame
+    uses: ./.github/workflows/compress.yml
+    secrets: inherit
+  
+  # ═══════════════════════════════════════════════════════════════════════════
+  # PHASE 3: UPLOAD (Parallel Execution)
+  # ═══════════════════════════════════════════════════════════════════════════
+  
+  upload-to-release:
+    name: 📤 Upload to GitHub Release
+    if: ${{ github.event.inputs.skip_upload != 'true' }}
+    needs: compress-data
+    permissions:
+      contents: write
+    uses: ./.github/workflows/upload-release.yml
+    secrets: inherit
+  
+  # ─────────────────────────────────────────────────────────────────────────
+  # 🔮 FUTURE UPLOAD DESTINATIONS - Add new destinations here
+  # ─────────────────────────────────────────────────────────────────────────
+  #
+  # upload-to-r2:
+  #   name: ☁️ Upload to Cloudflare R2
+  #   if: ${{ github.event.inputs.skip_upload != 'true' }}
+  #   needs: compress-data
+  #   uses: ./.github/workflows/upload-r2.yml
+  #   secrets: inherit
+  #
+  # upload-to-gdrive:
+  #   name: 💾 Upload to Google Drive
+  #   needs: compress-data
+  #   uses: ./.github/workflows/upload-gdrive.yml
+  #   secrets: inherit
+  #
+  # upload-to-archive:
+  #   name: 📚 Upload to Internet Archive
+  #   needs: compress-data
+  #   uses: ./.github/workflows/upload-archive.yml
+  #   secrets: inherit
+  # ─────────────────────────────────────────────────────────────────────────
+  
+  # ═══════════════════════════════════════════════════════════════════════════
+  # FINAL: NOTIFICATION & CLEANUP
+  # ═══════════════════════════════════════════════════════════════════════════
+  
+  finalize:
+    name: ✅ Pipeline Complete
+    needs:
+      - upload-to-release
+      # Add future upload jobs here
+      # - upload-to-r2
+      # - upload-to-gdrive
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📊 Generate Summary
+        run: |
+          echo "# 🎉 Pipeline Execution Complete!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Completed Tasks" >> $GITHUB_STEP_SUMMARY
+          echo "- ✓ Data scraping" >> $GITHUB_STEP_SUMMARY
+          echo "- ✓ Data compression" >> $GITHUB_STEP_SUMMARY
+          echo "- ✓ Upload to destinations" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Timestamp:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "**Workflow Run:** [View Details](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+      
+      - name: 🎊 Success Notification
+        run: |
+          echo "✅ All pipeline tasks completed successfully!"
+          echo "📦 Data has been collected, compressed, and uploaded."
+          echo "🔗 Check releases for the latest data snapshot."
