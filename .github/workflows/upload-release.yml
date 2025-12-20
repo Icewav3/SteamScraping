@@ -1,16 +1,15 @@
 # ═══════════════════════════════════════════════════════════════════════════
-# 📤 GITHUB RELEASE PUBLISHER - Reusable Workflow
+# 📤 GITHUB RELEASE PUBLISHER - Enhanced with Backup Rotation
 # ═══════════════════════════════════════════════════════════════════════════
 #
-# Publishes compressed data archives to GitHub Releases. This workflow
-# intelligently updates existing releases or creates new ones as needed.
+# CHANGES FROM ORIGINAL:
+# - Line 25-30: Added 'max_backups' input for configurable retention
+# - Line 175-220: Enhanced backup rotation with configurable limits
+# - Line 225-245: Backup verification and reporting
+# - Line 290-310: Backup list in summary
 #
-# Benefits of GitHub Releases for data storage:
-# - ✅ Unlimited storage for release assets
-# - ✅ Fast CDN-backed downloads
-# - ✅ Built-in version control
-# - ✅ Public accessibility
-# - ✅ No external authentication needed
+# WHY: Prevents unlimited release accumulation while maintaining history.
+#      Configurable retention allows flexibility for different use cases.
 #
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -24,6 +23,12 @@ on:
         required: false
         default: 'daily'
         type: string
+      
+      max_backups:
+        description: 'Maximum number of backup releases to keep (0 = unlimited)'
+        required: false
+        default: 30
+        type: number
     
     outputs:
       release_url:
@@ -45,12 +50,18 @@ on:
           - daily
           - weekly
           - latest
+      
+      max_backups:
+        description: 'Max backups to keep'
+        required: false
+        default: '30'
+        type: string
 
 jobs:
   upload:
     name: Publishing to Release
     runs-on: ubuntu-latest
-    timeout-minutes: 3 # should not be longer than 3 minutes
+    timeout-minutes: 15
     permissions:
       contents: write
     
@@ -66,7 +77,7 @@ jobs:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Fetch all history for proper tagging
+          fetch-depth: 0
       
       - name: 📥 Download Compressed Archive
         uses: actions/download-artifact@v4
@@ -127,18 +138,22 @@ jobs:
         run: |
           TODAY=$(date +%Y-%m-%d)
           
-          # Read metadata if available
           if [ -f "artifacts/archive-metadata.json" ]; then
             ARCHIVE_NAME=$(jq -r '.archive_name' artifacts/archive-metadata.json)
             COMPRESSED_SIZE=$(jq -r '.compressed_size_mb' artifacts/archive-metadata.json)
             COMPRESSION_RATIO=$(jq -r '.compression_ratio' artifacts/archive-metadata.json)
+            TOTAL_ENTRIES=$(jq -r '.total_entries' artifacts/archive-metadata.json)
+            PREV_ENTRIES=$(jq -r '.previous_entries' artifacts/archive-metadata.json)
+            NEW_ENTRIES=$(jq -r '.new_entries' artifacts/archive-metadata.json)
           else
             ARCHIVE_NAME=$(ls artifacts/*.tar.gz | head -1 | xargs basename)
             COMPRESSED_SIZE="Unknown"
             COMPRESSION_RATIO="Unknown"
+            TOTAL_ENTRIES="Unknown"
+            PREV_ENTRIES="0"
+            NEW_ENTRIES="Unknown"
           fi
           
-          # Create release notes
           cat > release-notes.md << EOF
           # 🎮 Game Market Data Collection
           
@@ -146,11 +161,12 @@ jobs:
           
           ## 📊 Dataset Information
           
-          This release contains comprehensive gaming market data collected from multiple sources:
+          This release contains comprehensive gaming market data with full historical context.
           
           ### 📦 What's Included
           
           - **SteamSpy Data**: Community-driven statistics for Steam games
+          - **Historical Data**: All previously collected data merged with new entries
           - **Metadata**: Collection timestamps, source information, validation results
           - **Checksums**: MD5 and SHA256 for data integrity verification
           
@@ -159,6 +175,9 @@ jobs:
           | Metric | Value |
           |--------|-------|
           | **Archive Name** | \`$ARCHIVE_NAME\` |
+          | **Total Entries** | $TOTAL_ENTRIES |
+          | **New Entries (This Run)** | $NEW_ENTRIES |
+          | **Previous Entries** | $PREV_ENTRIES |
           | **Compressed Size** | $COMPRESSED_SIZE MB |
           | **Compression Ratio** | $COMPRESSION_RATIO |
           | **Collection Date** | $TODAY |
@@ -172,7 +191,7 @@ jobs:
           # Download the archive
           wget https://github.com/${{ github.repository }}/releases/download/${{ steps.prepare.outputs.tag }}/$ARCHIVE_NAME
           
-          # Verify integrity (optional)
+          # Verify integrity
           wget https://github.com/${{ github.repository }}/releases/download/${{ steps.prepare.outputs.tag }}/${ARCHIVE_NAME}.sha256
           sha256sum -c ${ARCHIVE_NAME}.sha256
           
@@ -184,11 +203,13 @@ jobs:
           
           \`\`\`python
           import pandas as pd
+          import glob
           
-          # Read the data
-          df = pd.read_json('Data/[date]/steamspy_data.jsonl', lines=True)
+          # Read all JSONL files
+          files = glob.glob('Data/**/steamspy_data.jsonl', recursive=True)
+          dfs = [pd.read_json(f, lines=True) for f in files]
+          df = pd.concat(dfs, ignore_index=True)
           
-          # Analyze
           print(f"Total games: {len(df)}")
           print(df['genre'].value_counts())
           \`\`\`
@@ -202,12 +223,7 @@ jobs:
           ## 📚 Documentation
           
           - [Project README](https://github.com/${{ github.repository }}/blob/main/README.md)
-          - [Visualization Dashboard](https://github.com/${{ github.repository }}/blob/main/visualization.py)
           - [Data Collection Pipeline](https://github.com/${{ github.repository }}/blob/main/.github/workflows/pipeline.yml)
-          
-          ## 🤝 Contributing
-          
-          Found an issue? Want to contribute? Check out our [GitHub repository](${{ github.server_url }}/${{ github.repository }})!
           
           ---
           
@@ -227,7 +243,6 @@ jobs:
         run: |
           TAG="${{ steps.prepare.outputs.tag }}"
           
-          # Check if release exists
           if gh release view "$TAG" > /dev/null 2>&1; then
             echo "exists=true" >> $GITHUB_OUTPUT
             echo "ℹ️ Release $TAG already exists - will update"
@@ -237,7 +252,7 @@ jobs:
           fi
       
       # ─────────────────────────────────────────────────────────────────────
-      # DELETE OLD RELEASE (if updating 'latest')
+      # DELETE OLD RELEASE (if updating)
       # ─────────────────────────────────────────────────────────────────────
       
       - name: 🗑️ Delete Old Release Assets
@@ -249,10 +264,7 @@ jobs:
           
           echo "🗑️ Cleaning up old assets for $TAG..."
           
-          # Delete existing release (will recreate with new assets)
           gh release delete "$TAG" --yes || true
-          
-          # Delete tag
           git push origin :refs/tags/"$TAG" || true
           
           echo "✅ Cleanup complete"
@@ -292,10 +304,8 @@ jobs:
           
           echo "🔍 Verifying release..."
           
-          # Get release info
           gh release view "$TAG" --json url,assets
           
-          # Count assets
           ASSET_COUNT=$(gh release view "$TAG" --json assets --jq '.assets | length')
           
           echo ""
@@ -305,24 +315,86 @@ jobs:
           echo "  • URL: ${{ steps.release.outputs.url }}"
       
       # ─────────────────────────────────────────────────────────────────────
-      # CLEANUP OLD RELEASES (Optional)
+      # BACKUP ROTATION (Enhanced with Configurable Limits)
       # ─────────────────────────────────────────────────────────────────────
       
-      - name: 🧹 Cleanup Old Daily Releases
+      - name: 🔄 Rotate Backup Releases
         if: inputs.release_strategy == 'daily'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          echo "🧹 Cleaning up old releases..."
+          MAX_BACKUPS="${{ inputs.max_backups }}"
           
-          # Keep last 30 daily releases, delete older ones
-          gh release list --limit 100 | grep "^data-20" | tail -n +31 | while read -r line; do
+          echo "🔄 Managing backup releases (max: $MAX_BACKUPS)..."
+          
+          # Handle unlimited backups
+          if [ "$MAX_BACKUPS" -eq 0 ]; then
+            echo "ℹ️ Unlimited backups configured - skipping rotation"
+            exit 0
+          fi
+          
+          # Get all data releases sorted by date (newest first)
+          echo "📋 Fetching all data releases..."
+          gh release list --limit 200 | grep "^data-20" > all_releases.txt || true
+          
+          if [ ! -s all_releases.txt ]; then
+            echo "ℹ️ No releases to rotate"
+            exit 0
+          fi
+          
+          TOTAL_RELEASES=$(wc -l < all_releases.txt)
+          echo "📊 Found $TOTAL_RELEASES total releases"
+          
+          if [ "$TOTAL_RELEASES" -le "$MAX_BACKUPS" ]; then
+            echo "✅ Within backup limit ($TOTAL_RELEASES <= $MAX_BACKUPS)"
+            exit 0
+          fi
+          
+          # Calculate how many to delete
+          TO_DELETE=$((TOTAL_RELEASES - MAX_BACKUPS))
+          echo "🗑️ Need to delete $TO_DELETE old releases"
+          
+          # Delete oldest releases
+          tail -n "$TO_DELETE" all_releases.txt | while read -r line; do
             TAG=$(echo "$line" | awk '{print $1}')
-            echo "  Deleting old release: $TAG"
-            gh release delete "$TAG" --yes || true
+            DATE=$(echo "$line" | awk '{print $3}')
+            
+            echo "  ❌ Deleting: $TAG (from $DATE)"
+            gh release delete "$TAG" --yes || echo "  ⚠️ Failed to delete $TAG"
           done
           
-          echo "✅ Cleanup complete"
+          echo "✅ Backup rotation complete"
+          echo ""
+          echo "📊 Retention Summary:"
+          echo "  • Kept: $MAX_BACKUPS releases"
+          echo "  • Deleted: $TO_DELETE releases"
+      
+      # ─────────────────────────────────────────────────────────────────────
+      # BACKUP VERIFICATION
+      # ─────────────────────────────────────────────────────────────────────
+      
+      - name: 📋 List Current Backups
+        if: inputs.release_strategy == 'daily'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "📋 Current backup releases:"
+          echo ""
+          
+          gh release list --limit 100 | grep "^data-20" | head -20 | while read -r line; do
+            TAG=$(echo "$line" | awk '{print $1}')
+            DATE=$(echo "$line" | awk '{print $3}')
+            echo "  ✓ $TAG (created $DATE)"
+          done
+          
+          BACKUP_COUNT=$(gh release list --limit 200 | grep -c "^data-20" || echo 0)
+          echo ""
+          echo "📊 Total backups: $BACKUP_COUNT"
+          
+          MAX_BACKUPS="${{ inputs.max_backups }}"
+          if [ "$MAX_BACKUPS" -ne 0 ] && [ "$BACKUP_COUNT" -gt "$MAX_BACKUPS" ]; then
+            echo "::warning::Backup count ($BACKUP_COUNT) exceeds limit ($MAX_BACKUPS)"
+          fi
       
       # ─────────────────────────────────────────────────────────────────────
       # SUMMARY
@@ -351,8 +423,29 @@ jobs:
           echo "- SHA256 checksum (.sha256)" >> $GITHUB_STEP_SUMMARY
           echo "- Collection metadata (.json)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          
+          # Add backup rotation info
+          if [ "${{ inputs.release_strategy }}" == "daily" ]; then
+            MAX_BACKUPS="${{ inputs.max_backups }}"
+            BACKUP_COUNT=$(gh release list --limit 200 | grep -c "^data-20" 2>/dev/null || echo 0)
+            
+            echo "### 🔄 Backup Management" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **Max Backups:** $MAX_BACKUPS" >> $GITHUB_STEP_SUMMARY
+            echo "- **Current Backups:** $BACKUP_COUNT" >> $GITHUB_STEP_SUMMARY
+            
+            if [ "$MAX_BACKUPS" -eq 0 ]; then
+              echo "- **Retention:** Unlimited" >> $GITHUB_STEP_SUMMARY
+            else
+              echo "- **Retention:** Last $MAX_BACKUPS days" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+          fi
+          
           echo "### 📥 Download Command" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
           echo "gh release download $TAG -R ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+        env:
+          GH_TOKEN: ${{ github.token }}
