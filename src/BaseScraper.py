@@ -3,7 +3,7 @@ BaseScraper - Abstract base class for all scrapers.
 """
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Optional, Set
+from typing import Optional, Set, Callable, List, Any
 import aiohttp
 from tqdm.auto import tqdm
 from datetime import datetime
@@ -97,3 +97,39 @@ class BaseScraper(ABC):
             tqdm progress bar
         """
         return tqdm(iterable, desc=desc)
+    
+    async def process_items_in_batches(
+        self,
+        items: List[Any],
+        process_func: Callable,
+        batch_label: str = "Batch",
+        progress_callback: Optional[Callable] = None,
+        batch_delay: Optional[float] = None
+    ) -> int:
+        """
+        Process a list of items with optional progress tracking and delays.
+        
+        Args:
+            items: List of items to process
+            process_func: Async function to process each item
+            batch_label: Label for progress updates
+            progress_callback: Optional callback(current, total, label) for progress
+            batch_delay: Optional delay after processing all items
+            
+        Returns:
+            Number of items successfully processed
+        """
+        processed_count = 0
+        
+        for i, item in enumerate(items):
+            if progress_callback:
+                progress_callback(i, len(items), batch_label)
+            
+            result = await process_func(item)
+            if result is not None:
+                processed_count += 1
+        
+        if batch_delay and batch_delay > 0:
+            await asyncio.sleep(batch_delay)
+        
+        return processed_count

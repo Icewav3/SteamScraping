@@ -6,34 +6,7 @@ from typing import Dict, Any, Optional
 
 from .BaseScraper import BaseScraper
 from .FileSystem import FileSystem
-
-
-class RateLimiter:
-    """Simple rate limiter for API requests."""
-    
-    def __init__(self, interval: float):
-        """
-        Initialize rate limiter.
-        
-        Args:
-            interval: Minimum seconds between requests
-        """
-        self.interval = interval
-        self.lock = asyncio.Lock()
-        self.last_called = 0
-    
-    async def __aenter__(self):
-        """Wait if necessary before allowing request."""
-        async with self.lock:
-            now = asyncio.get_event_loop().time()
-            wait_time = self.interval - (now - self.last_called)
-            if wait_time > 0:
-                await asyncio.sleep(wait_time)
-            self.last_called = asyncio.get_event_loop().time()
-        return self
-    
-    async def __aexit__(self, exc_type, exc, tb):
-        pass
+from .RateLimiter import RateLimiter
 
 
 class SteamSpyScraper(BaseScraper):
@@ -118,6 +91,29 @@ class SteamSpyScraper(BaseScraper):
                 self.log_error(f"App {appid}: {e}", self.error_file)
                 return None
     
+    async def _process_app(self, appid: int, scraped_ids: set) -> Optional[Dict[str, Any]]:
+        """
+        Process a single app: fetch details and save if new.
+        
+        Args:
+            appid: Steam app ID
+            scraped_ids: Set of already scraped app IDs
+            
+        Returns:
+            App data if successfully scraped, None otherwise
+        """
+        # Skip if already scraped
+        if str(appid) in scraped_ids:
+            return None
+        
+        data = await self._fetch_app_details(appid)
+        if data:
+            self.fs.append_jsonl(data, self.output_file)
+            self.save_progress(str(appid), self.progress_file)
+            return data
+        
+        return None
+    
     async def scrape(self, progress_callback=None) -> int:
         """
         Scrape SteamSpy data for configured number of pages.
@@ -141,30 +137,25 @@ class SteamSpyScraper(BaseScraper):
             
             # Get app IDs from the response
             app_ids = [int(appid) for appid in apps.keys()]
-            new_count = 0
             
-            # Scrape details for each app
-            for i, appid in enumerate(app_ids):
-                if progress_callback:
-                    progress_callback(i, len(app_ids), f"Page {page}")
-                
-                # Skip if already scraped
-                if str(appid) in scraped_ids:
-                    continue
-                
-                data = await self._fetch_app_details(appid)
-                if data:
-                    self.fs.append_jsonl(data, self.output_file)
-                    self.save_progress(str(appid), self.progress_file)
-                    new_count += 1
+            # Process all apps in this page
+            async def process_single_app(appid):
+                return await self._process_app(appid, scraped_ids)
+            
+            new_count = await self.process_items_in_batches(
+                items=app_ids,
+                process_func=process_single_app,
+                batch_label=f"Page {page}",
+                progress_callback=progress_callback,
+                batch_delay=self.page_delay if page < self.pages - 1 else None
+            )
             
             self._print(f"Page {page} - New apps scraped: {new_count}")
             total_scraped += new_count
             
-            # Wait between pages (except last page)
+            # Print delay message if there's a next page
             if page < self.pages - 1 and new_count > 0:
                 self._print(f"Waiting {self.page_delay} seconds...")
-                await asyncio.sleep(self.page_delay)
         
         # Save metadata
         metadata = {
