@@ -224,11 +224,14 @@ jobs:
       # ─────────────────────────────────────────────────────────────────────
       # METADATA FILE
       # ─────────────────────────────────────────────────────────────────────
-      
+
       - name: 📝 Create Archive Metadata
         run: |
           TODAY=$(date +%Y-%m-%d)
           FILENAME="${{ steps.create.outputs.filename }}"
+          
+          # Count total entries from JSONL files
+          TOTAL_ENTRIES=$(find Data -name "*.jsonl" -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
           
           cat > archive-metadata.json << EOF
           {
@@ -237,6 +240,8 @@ jobs:
             "original_size_mb": "${{ steps.original.outputs.size_mb }}",
             "compressed_size_mb": "${{ steps.stats.outputs.size }}",
             "compression_ratio": "${{ steps.stats.outputs.ratio }}",
+            "total_entries": $TOTAL_ENTRIES,
+            "new_entries": $TOTAL_ENTRIES,
             "data_sources": [
               "steamspy"
             ],
@@ -247,13 +252,6 @@ jobs:
           
           echo "📄 Metadata created:"
           cat archive-metadata.json
-      
-      - name: 📤 Upload Metadata
-        uses: actions/upload-artifact@v4
-        with:
-          name: archive-metadata
-          path: archive-metadata.json
-          retention-days: 90
       
       # ─────────────────────────────────────────────────────────────────────
       # SUMMARY
