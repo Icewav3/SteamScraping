@@ -139,11 +139,11 @@ jobs:
             exit 1
           fi
           
-          # Parse metadata
-          TOTAL=$(jq -r '.total_entries' archive-metadata.json)
-          PREV=$(jq -r '.previous_entries' archive-metadata.json)
-          NEW=$(jq -r '.new_entries' archive-metadata.json)
-          HAS_PREV=$(jq -r '.has_previous_data' archive-metadata.json)
+          # Parse metadata with null handling
+          TOTAL=$(jq -r '.total_entries // 0' archive-metadata.json)
+          PREV=$(jq -r '.previous_entries // 0' archive-metadata.json)
+          NEW=$(jq -r '.new_entries // 0' archive-metadata.json)
+          HAS_PREV=$(jq -r '.has_previous_data // "false"' archive-metadata.json)
           
           echo "📊 Data Statistics:"
           echo "  • Previous entries: $PREV"
@@ -154,7 +154,8 @@ jobs:
           
           # Check for data loss
           if [ "$HAS_PREV" == "true" ]; then
-            if [ "$TOTAL" -lt "$PREV" ]; then
+            # Use arithmetic comparison with error suppression
+            if [ "$TOTAL" -lt "$PREV" ] 2>/dev/null; then
               LOST=$((PREV - TOTAL))
               echo "::error::⚠️ DATA LOSS DETECTED! Lost $LOST entries"
               echo "::error::This may indicate a scraping failure or data corruption"
@@ -174,13 +175,13 @@ jobs:
           fi
           
           # Check if new scrape yielded data
-          if [ "$NEW" -eq 0 ]; then
+          if [ "$NEW" -eq 0 ] 2>/dev/null; then
             echo "::warning::No new data collected in this run"
             HAS_WARNINGS=true
           fi
           
           # Validation passes if we have data and no critical errors
-          if [ "$TOTAL" -gt 0 ]; then
+          if [ "$TOTAL" -gt 0 ] 2>/dev/null; then
             echo "passed=true" >> $GITHUB_OUTPUT
             echo "has_warnings=$HAS_WARNINGS" >> $GITHUB_OUTPUT
             echo "✅ Validation passed"

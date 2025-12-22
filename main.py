@@ -42,7 +42,8 @@ def _():
     from src.FileSystem import FileSystem
     from src.BaseScraper import BaseScraper
     from src.SteamSpyScraper import SteamSpyScraper
-    return FileSystem, SteamSpyScraper
+    from src.DataValidator import DataValidator
+    return DataValidator, FileSystem, SteamSpyScraper
 
 
 @app.cell(hide_code=True)
@@ -56,7 +57,7 @@ def _(mo):
 @app.cell
 def _(mo):
     user_pages = mo.ui.number(start=1, stop=100, step=1, value=10, label="Pages")
-    user_page_delay = mo.ui.number(start=0.0, stop=15.0, step=0.1, value=5.0, label="Page Delay (s)")
+    user_page_delay = mo.ui.number(start=0.0, stop=15.0, step=0.1, value=0.0, label="Page Delay (s)")
     user_app_delay = mo.ui.number(start=0.0, stop=10.0, step=0.1, value=0.1, label="App Delay (s)")
 
     mo.vstack([user_pages, user_page_delay, user_app_delay])
@@ -84,6 +85,14 @@ async def _(
             total = await scraper.scrape(progress_callback=progress_callback)
 
     print(f"✓ Complete! Scraped {total} apps")
+    return
+
+
+@app.cell
+def _(DataValidator):
+    validator = DataValidator(data_dir="Data")
+    report = validator.validate()
+    report.print_summary(verbose=True)
     return
 
 

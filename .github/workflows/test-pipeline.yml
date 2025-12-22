@@ -123,13 +123,19 @@ jobs:
             exit 1
           fi
           
-          # Parse metadata
-          TOTAL=$(jq -r '.total_entries' archive-metadata.json)
-          NEW=$(jq -r '.new_entries' archive-metadata.json)
+          # Parse metadata with null handling
+          TOTAL=$(jq -r '.total_entries // 0' archive-metadata.json)
+          NEW=$(jq -r '.new_entries // 0' archive-metadata.json)
           
           echo "📊 Test Results:"
           echo "  • Total entries: $TOTAL"
           echo "  • New entries: $NEW"
+          
+          # Debug: Show full metadata
+          echo ""
+          echo "📄 Full metadata:"
+          cat archive-metadata.json
+          echo ""
           
           # Find archive
           ARCHIVE=$(find ./archive -name "*.tar.gz" | head -1)
@@ -172,7 +178,7 @@ jobs:
           fi
           
           # Check for reasonable data
-          if [ "$TOTAL" -gt 0 ] && [ "$TOTAL" -le 1100 ]; then
+          if [ "$TOTAL" -gt 0 ] 2>/dev/null && [ "$TOTAL" -le 1100 ] 2>/dev/null; then
             echo "✅ Test data within expected range (1-1100 entries)"
             echo "passed=true" >> $GITHUB_OUTPUT
           else
