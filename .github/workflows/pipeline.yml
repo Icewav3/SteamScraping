@@ -25,7 +25,7 @@ name: 🚀 Data Collection Pipeline
 
 on:
   schedule:
-    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+    - cron: '0 16 * * *' # Daily at 8:00 AM PST
   
   workflow_dispatch:
     inputs:
@@ -90,7 +90,7 @@ jobs:
     uses: ./.github/workflows/scrape-steamspy.yml
     secrets: inherit
     with:
-      pages: ${{ github.event.inputs.steamspy_pages || '10' }}
+      pages: ${{ github.event.inputs.steamspy_pages || '1000' }}
       page_delay: ${{ github.event.inputs.steamspy_page_delay || '15' }}
       app_delay: ${{ github.event.inputs.steamspy_app_delay || '0.1' }}
       test_mode: false

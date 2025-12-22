@@ -50,6 +50,7 @@ jobs:
         with:
           name: steamspy-data-raw
           path: Data/
+        continue-on-error: false
       
       # ─────────────────────────────────────────────────────────────────────
       # 🔮 FUTURE: Download additional scraper artifacts here
@@ -94,6 +95,27 @@ jobs:
           # Show directory structure
           echo ""
           echo "📁 Data structure:"
+          tree -L 2 Data/ || ls -R Data/
+      
+      # ─────────────────────────────────────────────────────────────────────
+      # CLEAN UP INTERNAL FILES
+      # ─────────────────────────────────────────────────────────────────────
+      
+      - name: 🧹 Remove Internal Tracking Files
+        run: |
+          echo "🧹 Removing internal files..."
+          
+          # Remove progress tracking files
+          find Data -name "scraped_appids.txt" -delete
+          find Data -name "progress.txt" -delete
+          
+          # Remove error logs
+          find Data -name "*_errors.log" -delete
+          find Data -name "errors.log" -delete
+          
+          # Show what remains
+          echo ""
+          echo "📁 Cleaned data structure:"
           tree -L 2 Data/ || ls -R Data/
       
       # ─────────────────────────────────────────────────────────────────────
@@ -184,6 +206,15 @@ jobs:
           echo ""
           echo "📋 Archive contents (sample):"
           tar -tzf "$FILENAME" | head -20
+          
+          # Verify only data files are included
+          echo ""
+          echo "🔍 Checking for unwanted files..."
+          if tar -tzf "$FILENAME" | grep -E "(scraped_appids|progress\.txt|errors\.log)" > /dev/null; then
+            echo "⚠️ Warning: Found internal tracking files in archive"
+          else
+            echo "✅ Archive contains only data and metadata files"
+          fi
       
       # ─────────────────────────────────────────────────────────────────────
       # CREATE CHECKSUMS
@@ -224,7 +255,7 @@ jobs:
       # ─────────────────────────────────────────────────────────────────────
       # METADATA FILE
       # ─────────────────────────────────────────────────────────────────────
-
+      
       - name: 📝 Create Archive Metadata
         run: |
           TODAY=$(date +%Y-%m-%d)
@@ -253,6 +284,13 @@ jobs:
           echo "📄 Metadata created:"
           cat archive-metadata.json
       
+      - name: 📤 Upload Metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-metadata
+          path: archive-metadata.json
+          retention-days: 90
+      
       # ─────────────────────────────────────────────────────────────────────
       # SUMMARY
       # ─────────────────────────────────────────────────────────────────────
@@ -277,6 +315,7 @@ jobs:
           echo "- ✅ Archive integrity verified" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Checksums generated (MD5 & SHA256)" >> $GITHUB_STEP_SUMMARY
           echo "- ✅ Metadata created" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Internal tracking files removed" >> $GITHUB_STEP_SUMMARY
       
       # ─────────────────────────────────────────────────────────────────────
       # CLEANUP
