@@ -4,8 +4,7 @@
 
 [![Python](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
 [![Marimo](https://img.shields.io/badge/marimo-0.18.4-orange.svg)](https://marimo.io/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 ---
 
 ## 📑 Table of Contents
