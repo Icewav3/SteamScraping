@@ -3,7 +3,7 @@ BaseScraper - Abstract base class for all scrapers.
 """
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Optional, Set, Callable, List, Any
+from typing import Optional, Set, Callable, List, Any, Dict
 import aiohttp
 from tqdm.auto import tqdm
 from datetime import datetime
@@ -84,6 +84,26 @@ class BaseScraper(ABC):
             Set of completed item IDs
         """
         return self.fs.read_lines(progress_file)
+    
+    def save_metadata(self, custom_fields: Optional[Dict[str, Any]] = None, 
+                     filename: str = "metadata.json"):
+        """
+        Save scraping metadata with consistent format across all scrapers.
+        
+        Args:
+            custom_fields: Additional scraper-specific fields to include
+            filename: Name of metadata file
+        """
+        metadata = {
+            "start_time": self.start_time.isoformat(),
+            "end_time": datetime.now().isoformat(),
+            "duration_seconds": (datetime.now() - self.start_time).total_seconds()
+        }
+        
+        if custom_fields:
+            metadata.update(custom_fields)
+        
+        self.fs.save_json(metadata, filename)
     
     def progress_bar(self, iterable, desc: str):
         """

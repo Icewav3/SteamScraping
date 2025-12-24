@@ -3,6 +3,7 @@
 # dependencies = [
 #     "aiohttp>=3.13.2",
 #     "marimo>=0.17.0",
+#     "pandera==0.27.1",
 #     "pyzmq>=27.1.0",
 #     "tqdm>=4.67.1",
 # ]
@@ -38,12 +39,10 @@ def _(mo):
 
 @app.cell
 def _():
-    #Install Dependencies
     from src.FileSystem import FileSystem
-    from src.BaseScraper import BaseScraper
     from src.SteamSpyScraper import SteamSpyScraper
-    from src.DataValidator import DataValidator
-    return DataValidator, FileSystem, SteamSpyScraper
+    from src.RAWGScraper import RAWGScraper
+    return FileSystem, SteamSpyScraper
 
 
 @app.cell(hide_code=True)
@@ -73,26 +72,22 @@ async def _(
     user_page_delay,
     user_pages,
 ):
-    fs = FileSystem(data_dir="Data")
-    SteamspyEnteriesPerPage = 1000
-    TotalEntriesToScrape = user_pages.value * SteamspyEnteriesPerPage
-    with mo.status.progress_bar(total=10*SteamspyEnteriesPerPage, title="Scraping SteamSpy") as bar:
-        def progress_callback(current, total, label):
-            """Update progress bar subtitle."""
-            bar.update(subtitle=f"{label}: {1+current}/{total}")
+    fs_steamspy = FileSystem("Data", "SteamSpyScraper")
 
-        async with SteamSpyScraper(fs, pages=user_pages.value, page_delay=user_page_delay.value, app_delay=user_app_delay.value, suppress_output=True) as scraper:
+    with mo.status.progress_bar(total=user_pages.value * 1000) as bar:
+        def progress_callback(current, total, label):
+            bar.update(subtitle=f"{label}: {current+1}/{total}")
+
+        async with SteamSpyScraper(
+            fs_steamspy, 
+            pages=user_pages.value,
+            page_delay=user_page_delay.value,
+            app_delay=user_app_delay.value,
+            suppress_output=True
+        ) as scraper:
             total = await scraper.scrape(progress_callback=progress_callback)
 
-    print(f"✓ Complete! Scraped {total} apps")
-    return
-
-
-@app.cell
-def _(DataValidator):
-    validator = DataValidator(data_dir="Data")
-    report = validator.validate()
-    report.print_summary(verbose=True)
+    print(f"✓ Scraped {total} Steam apps")
     return
 
 
