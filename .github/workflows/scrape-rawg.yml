@@ -1,0 +1,56 @@
+name: 🎮 RAWG Scraper
+
+on:
+  workflow_call:
+    outputs:
+      games_scraped:
+        value: ${{ jobs.scrape.outputs.total }}
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    outputs:
+      total: ${{ steps.stats.outputs.count }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      
+      - name: Install UV
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      
+      - name: Install deps
+        run: uv sync
+      
+      - name: Run scraper
+        env:
+          RAWG_API_KEY: ${{ secrets.RAWG_API_KEY }}
+        run: |
+          cat > run_rawg.py << 'EOF'
+          import asyncio, os, sys
+          sys.path.insert(0, '.')
+          from src.FileSystem import FileSystem
+          from src.RAWGScraper import RAWGScraper
+          
+          async def main():
+              fs = FileSystem("Data", "RAWGScraper")
+              async with RAWGScraper(fs, os.getenv('RAWG_API_KEY'), pages=100) as s:
+                  return await s.scrape()
+          
+          total = asyncio.run(main())
+          print(f"total={total}")
+          EOF
+          
+          uv run python run_rawg.py | tee output.txt
+          echo "count=$(grep 'total=' output.txt | cut -d= -f2)" >> $GITHUB_OUTPUT
+        id: stats
+      
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rawg-data
+          path: Data/
+          retention-days: 1
