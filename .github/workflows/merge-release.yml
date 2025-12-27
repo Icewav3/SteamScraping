@@ -38,6 +38,14 @@ jobs:
             cp -r ./new-data/steamspy-data-raw/$TODAY/SteamSpyScraper/* "Data/$TODAY/SteamSpyScraper/" || true
           fi
           
+          # IGDB
+          if [ -d "./new-data/igdb-data" ]; then
+            TODAY=$(date +%Y-%m-%d)
+            mkdir -p "Data/$TODAY/IGDBScraper"
+            cp -r ./new-data/igdb-data/$TODAY/IGDBScraper/* "Data/$TODAY/IGDBScraper/" || true
+          fi
+
+          # RAWG
           if [ -d "./new-data/rawg-data" ]; then
             TODAY=$(date +%Y-%m-%d)
             mkdir -p "Data/$TODAY/RAWGScraper"

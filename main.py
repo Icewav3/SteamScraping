@@ -42,6 +42,7 @@ def _():
     from src.FileSystem import FileSystem
     from src.SteamSpyScraper import SteamSpyScraper
     from src.RAWGScraper import RAWGScraper
+    from src.IGDBScraper import IGDBScraper
     return FileSystem, SteamSpyScraper
 
 

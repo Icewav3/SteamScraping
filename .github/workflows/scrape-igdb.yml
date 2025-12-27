@@ -1,0 +1,62 @@
+name: 🎮 IGDB Scraper
+
+on:
+  workflow_call:
+    outputs:
+      games_scraped:
+        value: ${{ jobs.scrape.outputs.total }}
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    outputs:
+      total: ${{ steps.stats.outputs.count }}
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      
+      - name: Install UV
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      
+      - name: Install deps
+        run: uv sync
+      
+      - name: Run scraper
+        env:
+          IGDB_CLIENT_ID: ${{ secrets.IGDB_CLIENT_ID }}
+          IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}
+        run: |
+          cat > run_igdb.py << 'EOF'
+          import asyncio, os, sys
+          sys.path.insert(0, '.')
+          from src.FileSystem import FileSystem
+          from src.IGDBScraper import IGDBScraper
+          
+          async def main():
+              fs = FileSystem("Data", "IGDBScraper")
+              async with IGDBScraper(
+                  fs, 
+                  os.getenv('IGDB_CLIENT_ID'), 
+                  os.getenv('IGDB_CLIENT_SECRET'),
+                  pages=50
+              ) as s:
+                  return await s.scrape()
+          
+          total = asyncio.run(main())
+          print(f"total={total}")
+          EOF
+          
+          uv run python run_igdb.py | tee output.txt
+          echo "count=$(grep 'total=' output.txt | cut -d= -f2)" >> $GITHUB_OUTPUT
+        id: stats
+      
+      - uses: actions/upload-artifact@v4
+        with:
+          name: igdb-data
+          path: Data/
+          retention-days: 1

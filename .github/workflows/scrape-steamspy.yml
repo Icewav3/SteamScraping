@@ -26,17 +26,21 @@ jobs:
     
     steps:
       - uses: actions/checkout@v4
+      
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
       
       - name: Install UV
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       
-      - name: Install deps
+      - name: Install dependencies
         run: uv sync
       
       - name: Run scraper
+        id: scrape
         run: |
           cat > run_steamspy.py << 'EOF'
           import asyncio, sys
@@ -48,34 +52,79 @@ jobs:
               fs = FileSystem("Data", "SteamSpyScraper")
               async with SteamSpyScraper(
                   fs, 
-                  pages=int("${{ inputs.pages || '10' }}"),
-                  page_delay=float("${{ inputs.page_delay || '15' }}"),
-                  app_delay=float("${{ inputs.app_delay || '0.1' }}"),
-                  suppress_output=False  # ADD THIS LINE
+                  pages=int(${{ inputs.pages }}),
+                  page_delay=float(${{ inputs.page_delay }}),
+                  app_delay=float(${{ inputs.app_delay }})
               ) as s:
-                  total = await s.scrape()
-              print(f"✅ Complete! total={total}")
-              return total
+                  return await s.scrape()
           
-          total = asyncio.run(main())
-          with open("stats.txt", "w") as f:
-              f.write(str(total))
+          try:
+              total = asyncio.run(main())
+              print(f"✓ Scraped {total} games")
+              with open("stats.txt", "w") as f:
+                  f.write(str(total))
+          except Exception as e:
+              print(f"✗ Scraper failed: {e}")
+              with open("stats.txt", "w") as f:
+                  f.write("0")
+              exit(1)
           EOF
           
           uv run python run_steamspy.py
-        id: scrape
-        
-      - name: Get stats
+        continue-on-error: false
+      
+      - name: Calculate stats
         id: stats
+        if: always()
         run: |
           if [ -f "stats.txt" ]; then
-            echo "count=$(cat stats.txt)" >> $GITHUB_OUTPUT
+            COUNT=$(cat stats.txt)
+            echo "count=$COUNT" >> $GITHUB_OUTPUT
+            echo "📊 Scraped: $COUNT games"
           else
             echo "count=0" >> $GITHUB_OUTPUT
+            echo "⚠️ No stats file found"
           fi
-            
-            - uses: actions/upload-artifact@v4
-              with:
-                name: steamspy-data-raw
-                path: Data/
-                retention-days: 1
+      
+      - name: Verify data exists
+        run: |
+          TODAY=$(date +%Y-%m-%d)
+          DATA_DIR="Data/$TODAY/SteamSpyScraper"
+          
+          if [ ! -d "$DATA_DIR" ]; then
+            echo "::error::Data directory not found: $DATA_DIR"
+            exit 1
+          fi
+          
+          JSONL="$DATA_DIR/steamspy_data.jsonl"
+          if [ ! -f "$JSONL" ]; then
+            echo "::error::Data file not found: $JSONL"
+            exit 1
+          fi
+          
+          LINES=$(wc -l < "$JSONL")
+          if [ "$LINES" -eq 0 ]; then
+            echo "::error::Data file is empty"
+            exit 1
+          fi
+          
+          echo "✓ Found $LINES entries in $JSONL"
+      
+      - name: Upload data
+        uses: actions/upload-artifact@v4
+        with:
+          name: steamspy-data-raw
+          path: Data/
+          retention-days: 1
+      
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::SteamSpy scraper failed!"
+          echo "::error::Check logs above for details"
+          
+          if [ -f "Data/**/steamspy_errors.log" ]; then
+            echo "::group::Error Log"
+            cat Data/**/steamspy_errors.log
+            echo "::endgroup::"
+          fi
