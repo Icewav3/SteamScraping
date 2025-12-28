@@ -27,24 +27,53 @@ jobs:
         run: uv sync
       
       - name: Run scraper
+        id: scrape
         env:
           IGDB_CLIENT_ID: ${{ secrets.IGDB_CLIENT_ID }}
           IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}
           IGDB_PAGES: "50"
         run: |
-          # Use dedicated script instead of heredoc
-          uv run python src/actions/run_igdb.py | tee output.txt
-          echo "count=$(grep 'total=' output.txt | cut -d= -f2)" >> $GITHUB_OUTPUT
+          echo "Starting IGDB scraper..."
+          uv run python actions/run_igdb.py | tee output.txt
+          
+          # Check if script ran successfully
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "::error::Scraper script failed"
+            cat output.txt
+            exit 1
+          fi
+        continue-on-error: false
+      
+      - name: Extract stats
         id: stats
+        if: always()
+        run: |
+          if [ -f output.txt ] && grep -q 'total=' output.txt; then
+            COUNT=$(grep 'total=' output.txt | cut -d= -f2)
+            echo "count=$COUNT" >> $GITHUB_OUTPUT
+          else
+            echo "count=0" >> $GITHUB_OUTPUT
+            echo "::warning::Could not extract scrape count"
+          fi
       
       - name: Validate output
         run: |
           TODAY=$(date +%Y-%m-%d)
-          JSONL="Data/$TODAY/IGDBScraper/igdb_data.jsonl"
+          DATA_DIR="Data/$TODAY/IGDBScraper"
+          JSONL="$DATA_DIR/igdb_data.jsonl"
+          
+          echo "Checking for output in: $DATA_DIR"
+          ls -la "$DATA_DIR" || echo "Directory does not exist"
           
           # Check file exists and has content
+          if [ ! -f "$JSONL" ]; then
+            echo "::error::Output file not found: $JSONL"
+            echo "::error::Check scraper logs above for errors"
+            exit 1
+          fi
+          
           if [ ! -s "$JSONL" ]; then
-            echo "::error::Output file missing or empty: $JSONL"
+            echo "::error::Output file is empty: $JSONL"
             exit 1
           fi
           

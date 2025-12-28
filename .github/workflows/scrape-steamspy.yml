@@ -46,8 +46,14 @@ jobs:
           STEAMSPY_PAGE_DELAY: ${{ inputs.page_delay }}
           STEAMSPY_APP_DELAY: ${{ inputs.app_delay }}
         run: |
-          # Use dedicated script instead of heredoc
-          uv run python src/actions/run_steamspy.py | tee output.txt
+          echo "Starting SteamSpy scraper..."
+          uv run python actions/run_steamspy.py | tee output.txt
+          
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "::error::Scraper script failed"
+            cat output.txt
+            exit 1
+          fi
           
           # Extract count for output
           if grep -q "✓ Scraped" output.txt; then
@@ -74,11 +80,20 @@ jobs:
       - name: Validate output
         run: |
           TODAY=$(date +%Y-%m-%d)
-          JSONL="Data/$TODAY/SteamSpyScraper/steamspy_data.jsonl"
+          DATA_DIR="Data/$TODAY/SteamSpyScraper"
+          JSONL="$DATA_DIR/steamspy_data.jsonl"
           
-          # Check file exists and has content
+          echo "Checking for output in: $DATA_DIR"
+          ls -la "$DATA_DIR" || echo "Directory does not exist"
+          
+          if [ ! -f "$JSONL" ]; then
+            echo "::error::Output file not found: $JSONL"
+            echo "::error::Check scraper logs above for errors"
+            exit 1
+          fi
+          
           if [ ! -s "$JSONL" ]; then
-            echo "::error::Output file missing or empty: $JSONL"
+            echo "::error::Output file is empty: $JSONL"
             exit 1
           fi
           

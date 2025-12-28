@@ -27,23 +27,50 @@ jobs:
         run: uv sync
       
       - name: Run scraper
+        id: scrape
         env:
           RAWG_API_KEY: ${{ secrets.RAWG_API_KEY }}
           RAWG_PAGES: "100"
         run: |
-          # Use dedicated script instead of heredoc
-          uv run python src/actions/run_rawg.py | tee output.txt
-          echo "count=$(grep 'total=' output.txt | cut -d= -f2)" >> $GITHUB_OUTPUT
+          echo "Starting RAWG scraper..."
+          uv run python actions/run_rawg.py | tee output.txt
+          
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "::error::Scraper script failed"
+            cat output.txt
+            exit 1
+          fi
+        continue-on-error: false
+      
+      - name: Extract stats
         id: stats
+        if: always()
+        run: |
+          if [ -f output.txt ] && grep -q 'total=' output.txt; then
+            COUNT=$(grep 'total=' output.txt | cut -d= -f2)
+            echo "count=$COUNT" >> $GITHUB_OUTPUT
+          else
+            echo "count=0" >> $GITHUB_OUTPUT
+            echo "::warning::Could not extract scrape count"
+          fi
       
       - name: Validate output
         run: |
           TODAY=$(date +%Y-%m-%d)
-          JSONL="Data/$TODAY/RAWGScraper/rawg_data.jsonl"
+          DATA_DIR="Data/$TODAY/RAWGScraper"
+          JSONL="$DATA_DIR/rawg_data.jsonl"
           
-          # Check file exists and has content
+          echo "Checking for output in: $DATA_DIR"
+          ls -la "$DATA_DIR" || echo "Directory does not exist"
+          
+          if [ ! -f "$JSONL" ]; then
+            echo "::error::Output file not found: $JSONL"
+            echo "::error::Check scraper logs above for errors"
+            exit 1
+          fi
+          
           if [ ! -s "$JSONL" ]; then
-            echo "::error::Output file missing or empty: $JSONL"
+            echo "::error::Output file is empty: $JSONL"
             exit 1
           fi
           

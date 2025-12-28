@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Run IGDB scraper with environment configuration."""
+"""Run IGDB scraper with environment configuration.
+
+GitHub Actions runner script.
+"""
 import asyncio
 import os
 import sys

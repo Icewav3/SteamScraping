@@ -1,4 +1,8 @@
-"""Run RAWG scraper with environment configuration."""
+#!/usr/bin/env python3
+"""Run RAWG scraper with environment configuration.
+
+GitHub Actions runner script.
+"""
 import asyncio
 import os
 import sys
