@@ -29,25 +29,38 @@ jobs:
       - name: Run scraper
         env:
           RAWG_API_KEY: ${{ secrets.RAWG_API_KEY }}
+          RAWG_PAGES: "100"
         run: |
-          cat > run_rawg.py << 'EOF'
-          import asyncio, os, sys
-          sys.path.insert(0, '.')
-          from src.FileSystem import FileSystem
-          from src.RAWGScraper import RAWGScraper
-          
-          async def main():
-              fs = FileSystem("Data", "RAWGScraper")
-              async with RAWGScraper(fs, os.getenv('RAWG_API_KEY'), pages=100) as s:
-                  return await s.scrape()
-          
-          total = asyncio.run(main())
-          print(f"total={total}")
-          EOF
-          
-          uv run python run_rawg.py | tee output.txt
+          # Use dedicated script instead of heredoc
+          uv run python src/actions/run_rawg.py | tee output.txt
           echo "count=$(grep 'total=' output.txt | cut -d= -f2)" >> $GITHUB_OUTPUT
         id: stats
+      
+      - name: Validate output
+        run: |
+          TODAY=$(date +%Y-%m-%d)
+          JSONL="Data/$TODAY/RAWGScraper/rawg_data.jsonl"
+          
+          # Check file exists and has content
+          if [ ! -s "$JSONL" ]; then
+            echo "::error::Output file missing or empty: $JSONL"
+            exit 1
+          fi
+          
+          # Check for valid JSON (sample first 10 lines)
+          if ! head -10 "$JSONL" | python -m json.tool >/dev/null 2>&1; then
+            echo "::error::Invalid JSON detected in $JSONL"
+            exit 1
+          fi
+          
+          # Check minimum threshold
+          LINES=$(wc -l < "$JSONL")
+          if [ "$LINES" -lt 50 ]; then
+            echo "::error::Only $LINES games scraped (expected >50)"
+            exit 1
+          fi
+          
+          echo "✓ Validation passed: $LINES valid entries"
       
       - uses: actions/upload-artifact@v4
         with:

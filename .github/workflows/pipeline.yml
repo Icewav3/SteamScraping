@@ -19,6 +19,7 @@ jobs:
   
   release:
     needs: [steamspy, igdb, rawg]
+    if: always()
     uses: ./.github/workflows/merge-release.yml
     permissions:
       contents: write

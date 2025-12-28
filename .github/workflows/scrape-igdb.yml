@@ -30,30 +30,38 @@ jobs:
         env:
           IGDB_CLIENT_ID: ${{ secrets.IGDB_CLIENT_ID }}
           IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}
+          IGDB_PAGES: "50"
         run: |
-          cat > run_igdb.py << 'EOF'
-          import asyncio, os, sys
-          sys.path.insert(0, '.')
-          from src.FileSystem import FileSystem
-          from src.IGDBScraper import IGDBScraper
-          
-          async def main():
-              fs = FileSystem("Data", "IGDBScraper")
-              async with IGDBScraper(
-                  fs, 
-                  os.getenv('IGDB_CLIENT_ID'), 
-                  os.getenv('IGDB_CLIENT_SECRET'),
-                  pages=50
-              ) as s:
-                  return await s.scrape()
-          
-          total = asyncio.run(main())
-          print(f"total={total}")
-          EOF
-          
-          uv run python run_igdb.py | tee output.txt
+          # Use dedicated script instead of heredoc
+          uv run python src/actions/run_igdb.py | tee output.txt
           echo "count=$(grep 'total=' output.txt | cut -d= -f2)" >> $GITHUB_OUTPUT
         id: stats
+      
+      - name: Validate output
+        run: |
+          TODAY=$(date +%Y-%m-%d)
+          JSONL="Data/$TODAY/IGDBScraper/igdb_data.jsonl"
+          
+          # Check file exists and has content
+          if [ ! -s "$JSONL" ]; then
+            echo "::error::Output file missing or empty: $JSONL"
+            exit 1
+          fi
+          
+          # Check for valid JSON (sample first 10 lines)
+          if ! head -10 "$JSONL" | python -m json.tool >/dev/null 2>&1; then
+            echo "::error::Invalid JSON detected in $JSONL"
+            exit 1
+          fi
+          
+          # Check minimum threshold
+          LINES=$(wc -l < "$JSONL")
+          if [ "$LINES" -lt 50 ]; then
+            echo "::error::Only $LINES games scraped (expected >50)"
+            exit 1
+          fi
+          
+          echo "✓ Validation passed: $LINES valid entries"
       
       - uses: actions/upload-artifact@v4
         with:
