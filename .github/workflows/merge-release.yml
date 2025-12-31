@@ -21,37 +21,54 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG=$(gh release list --limit 1 | grep "^data-" | awk '{print $1}')
-          if [ -n "$TAG" ]; then
-            echo "Downloading $TAG..."
+          YESTERDAY=$(date -d "yesterday" +%Y-%m-%d 2>/dev/null || date -v-1d +%Y-%m-%d)
+          TAG="data-${YESTERDAY}"
+          
+          echo "Looking for previous release: $TAG"
+          
+          # Only download if it exists
+          if gh release view "$TAG" &>/dev/null; then
+            echo "✓ Downloading $TAG..."
             gh release download "$TAG" --pattern "*.tar.gz"
             tar -xzf *.tar.gz
             rm *.tar.gz
+          else
+            echo "⚠ No previous release found, starting fresh cumulative dataset"
           fi
             
       - name: Merge data
         run: |
+          echo "Merging available data sources..."
+          TODAY=$(date +%Y-%m-%d)
+          
           # Copy new scraper data into cumulative Data/ structure
+          # Only merge what actually exists (allows partial scraper failures)
+          
           if [ -d "./new-data/steamspy-data-raw" ]; then
-            TODAY=$(date +%Y-%m-%d)
+            echo "✓ Found SteamSpy data"
             mkdir -p "Data/$TODAY/SteamSpyScraper"
             cp -r ./new-data/steamspy-data-raw/$TODAY/SteamSpyScraper/* "Data/$TODAY/SteamSpyScraper/" || true
+          else
+            echo "⚠ Missing SteamSpy data (scraper may have failed)"
           fi
           
-          # IGDB
           if [ -d "./new-data/igdb-data" ]; then
-            TODAY=$(date +%Y-%m-%d)
+            echo "✓ Found IGDB data"
             mkdir -p "Data/$TODAY/IGDBScraper"
             cp -r ./new-data/igdb-data/$TODAY/IGDBScraper/* "Data/$TODAY/IGDBScraper/" || true
+          else
+            echo "⚠ Missing IGDB data (scraper may have failed)"
           fi
 
-          # RAWG
           if [ -d "./new-data/rawg-data" ]; then
-            TODAY=$(date +%Y-%m-%d)
+            echo "✓ Found RAWG data"
             mkdir -p "Data/$TODAY/RAWGScraper"
             cp -r ./new-data/rawg-data/$TODAY/RAWGScraper/* "Data/$TODAY/RAWGScraper/" || true
+          else
+            echo "⚠ Missing RAWG data (scraper may have failed)"
           fi
           
+          echo ""
           echo "✓ Merged structure:"
           tree Data/ -L 3 || ls -R Data/
       
@@ -64,7 +81,11 @@ jobs:
           
           tar -czf "$ARCHIVE" Data/
           
+          if gh release view "$TAG" &>/dev/null; then
+            echo "⚠ Release $TAG already exists, deleting for rerun..."
+            gh release delete "$TAG" --yes
+          fi
+          
           gh release create "$TAG" "$ARCHIVE" \
             --title "Game Data - $(date +%Y-%m-%d)" \
-            --notes "Cumulative dataset with all historical data" \
-            || gh release upload "$TAG" "$ARCHIVE" --clobber
+            --notes "Cumulative dataset with all historical data"

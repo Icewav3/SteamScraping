@@ -1,10 +1,12 @@
 # src/FileSystem.py
-"""FileSystem - Simplified for scraper-specific directories."""
+"""FileSystem - Simplified for scraper-specific directories with atomic writes."""
 import json
 import os
-from typing import Set, Dict, Any, Optional
+from typing import Set, Dict, Any, Optional, Callable
 from datetime import datetime
 from pathlib import Path
+import tempfile
+import shutil
 
 
 class FileSystem:
@@ -26,16 +28,49 @@ class FileSystem:
         """Get full path for output file."""
         return self.daily_dir / filename
     
+    def _atomic_append(self, filename: str, write_func: Callable[[Any], None]):
+        """
+        Atomically append content to file using temp file pattern.
+        
+        Args:
+            filename: Target file name
+            write_func: Function that writes to a file object
+        """
+        target_path = self.get_output_path(filename)
+        temp_fd, temp_path = tempfile.mkstemp(
+            dir=self.daily_dir,
+            prefix=f'.{filename}.',
+            suffix='.tmp',
+            text=True
+        )
+        
+        try:
+            with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+                write_func(f)
+                f.flush()
+                os.fsync(f.fileno())
+            
+            with open(temp_path, 'r', encoding='utf-8') as src:
+                with open(target_path, 'a', encoding='utf-8') as dst:
+                    dst.write(src.read())
+                    dst.flush()
+                    os.fsync(dst.fileno())
+        finally:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+    
     def append_jsonl(self, data: Dict[str, Any], filename: str):
-        """Append JSON line to file."""
-        with open(self.get_output_path(filename), 'a', encoding='utf-8') as f:
-            json.dump(data, f)
+        """Append JSON line to file atomically."""
+        self._atomic_append(filename, lambda f: (
+            json.dump(data, f),
             f.write('\n')
+        ))
     
     def append_line(self, line: str, filename: str):
-        """Append text line."""
-        with open(self.get_output_path(filename), 'a', encoding='utf-8') as f:
-            f.write(f"{line}\n")
+        """Append text line atomically."""
+        self._atomic_append(filename, lambda f: f.write(f"{line}\n"))
     
     def read_lines(self, filename: str) -> Set[str]:
         """Read all lines as set."""
@@ -45,6 +80,25 @@ class FileSystem:
         return set(line.strip() for line in path.read_text().splitlines() if line.strip())
     
     def save_json(self, data: Dict[str, Any], filename: str):
-        """Save formatted JSON."""
-        with open(self.get_output_path(filename), 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
+        """Save formatted JSON with atomic write."""
+        target_path = self.get_output_path(filename)
+        temp_fd, temp_path = tempfile.mkstemp(
+            dir=self.daily_dir,
+            prefix=f'.{filename}.',
+            suffix='.tmp',
+            text=True
+        )
+        
+        try:
+            with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            
+            shutil.move(temp_path, target_path)
+        except:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+            raise

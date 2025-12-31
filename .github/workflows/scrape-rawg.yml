@@ -27,27 +27,67 @@ jobs:
         run: uv sync
       
       - name: Run scraper
+        id: scrape
         env:
           RAWG_API_KEY: ${{ secrets.RAWG_API_KEY }}
+          RAWG_PAGES: "100"
         run: |
-          cat > run_rawg.py << 'EOF'
-          import asyncio, os, sys
-          sys.path.insert(0, '.')
-          from src.FileSystem import FileSystem
-          from src.RAWGScraper import RAWGScraper
+          echo "Starting RAWG scraper..."
+          uv run python -m src.RAWGScraper | tee output.txt
           
-          async def main():
-              fs = FileSystem("Data", "RAWGScraper")
-              async with RAWGScraper(fs, os.getenv('RAWG_API_KEY'), pages=100) as s:
-                  return await s.scrape()
-          
-          total = asyncio.run(main())
-          print(f"total={total}")
-          EOF
-          
-          uv run python run_rawg.py | tee output.txt
-          echo "count=$(grep 'total=' output.txt | cut -d= -f2)" >> $GITHUB_OUTPUT
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "::error::Scraper script failed"
+            cat output.txt
+            exit 1
+          fi
+        continue-on-error: false
+      
+      - name: Extract stats
         id: stats
+        if: always()
+        run: |
+          if [ -f output.txt ] && grep -q 'total=' output.txt; then
+            COUNT=$(grep 'total=' output.txt | cut -d= -f2)
+            echo "count=$COUNT" >> $GITHUB_OUTPUT
+          else
+            echo "count=0" >> $GITHUB_OUTPUT
+            echo "::warning::Could not extract scrape count"
+          fi
+      
+      - name: Validate output
+        run: |
+          TODAY=$(date +%Y-%m-%d)
+          DATA_DIR="Data/$TODAY/RAWGScraper"
+          JSONL="$DATA_DIR/rawg_data.jsonl"
+          
+          echo "Checking for output in: $DATA_DIR"
+          ls -la "$DATA_DIR" || echo "Directory does not exist"
+          
+          if [ ! -f "$JSONL" ]; then
+            echo "::error::Output file not found: $JSONL"
+            echo "::error::Check scraper logs above for errors"
+            exit 1
+          fi
+          
+          if [ ! -s "$JSONL" ]; then
+            echo "::error::Output file is empty: $JSONL"
+            exit 1
+          fi
+          
+          # Check for valid JSON (sample first 10 lines)
+          if ! head -10 "$JSONL" | python -m json.tool >/dev/null 2>&1; then
+            echo "::error::Invalid JSON detected in $JSONL"
+            exit 1
+          fi
+          
+          # Check minimum threshold
+          LINES=$(wc -l < "$JSONL")
+          if [ "$LINES" -lt 50 ]; then
+            echo "::error::Only $LINES games scraped (expected >50)"
+            exit 1
+          fi
+          
+          echo "✓ Validation passed: $LINES valid entries"
       
       - uses: actions/upload-artifact@v4
         with:
