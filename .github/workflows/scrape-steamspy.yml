@@ -47,7 +47,7 @@ jobs:
           STEAMSPY_APP_DELAY: ${{ inputs.app_delay }}
         run: |
           echo "Starting SteamSpy scraper..."
-          uv run python actions/run_steamspy.py | tee output.txt
+          uv run python -m src.SteamSpyScraper | tee output.txt
           
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "::error::Scraper script failed"

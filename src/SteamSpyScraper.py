@@ -10,7 +10,7 @@ class SteamSpyScraper(BaseScraper):
     """Scraper for SteamSpy API."""
     
     def __init__(self, filesystem: FileSystem, pages: int = 10,
-                 page_delay: float = 5.0, app_delay: float = 0.1,
+                 page_delay: float = 1.0, app_delay: float = 0.1,
                  suppress_output: bool = False):
         super().__init__(filesystem, suppress_output)
         self.base_url = "https://steamspy.com/api.php"
@@ -72,3 +72,32 @@ class SteamSpyScraper(BaseScraper):
         
         self.save_metadata({"pages_scraped": page + 1, "apps_scraped": total_scraped})
         return total_scraped
+if __name__ == "__main__":
+    import os
+    import sys
+
+    async def main():
+        """Run scraper with environment configuration."""
+        fs = FileSystem("Data", "SteamSpyScraper")
+        
+        # Read config from environment with defaults
+        pages = int(os.getenv('STEAMSPY_PAGES', '10'))
+        page_delay = float(os.getenv('STEAMSPY_PAGE_DELAY', '15.0'))
+        app_delay = float(os.getenv('STEAMSPY_APP_DELAY', '0.1'))
+        
+        async with SteamSpyScraper(
+            fs,
+            pages=pages,
+            page_delay=page_delay,
+            app_delay=app_delay
+        ) as scraper:
+            total = await scraper.scrape()
+            print(f"✓ Scraped {total} games")
+            return total
+
+    try:
+        total = asyncio.run(main())
+        sys.exit(0 if total > 0 else 1)
+    except Exception as e:
+        print(f"✗ Scraper failed: {e}", file=sys.stderr)
+        sys.exit(1)

@@ -33,7 +33,7 @@ jobs:
           RAWG_PAGES: "100"
         run: |
           echo "Starting RAWG scraper..."
-          uv run python actions/run_rawg.py | tee output.txt
+          uv run python -m src.RAWGScraper | tee output.txt
           
           if [ ${PIPESTATUS[0]} -ne 0 ]; then
             echo "::error::Scraper script failed"
