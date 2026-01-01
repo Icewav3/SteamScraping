@@ -12,65 +12,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       
+      - name: Download cumulative dataset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LATEST=$(gh release list --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null || echo "")
+          
+          if [ -n "$LATEST" ] && gh release download "$LATEST" -p "gamedata-*.tar.gz" 2>/dev/null; then
+            tar -xzf gamedata-*.tar.gz && rm gamedata-*.tar.gz
+            echo "✓ Restored cumulative dataset: $LATEST"
+          else
+            echo "⚠ No previous release, starting fresh"
+          fi
+      
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: ./new-data/
       
-      - name: Download previous release
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Merge new data
         run: |
-          YESTERDAY=$(date -d "yesterday" +%Y-%m-%d 2>/dev/null || date -v-1d +%Y-%m-%d)
-          TAG="data-${YESTERDAY}"
+          for artifact in ./new-data/*/Data; do
+            [ -d "$artifact" ] && cp -rn "$artifact"/* Data/ 2>/dev/null || true
+          done
           
-          echo "Looking for previous release: $TAG"
-          
-          # Only download if it exists
-          if gh release view "$TAG" &>/dev/null; then
-            echo "✓ Downloading $TAG..."
-            gh release download "$TAG" --pattern "*.tar.gz"
-            tar -xzf *.tar.gz
-            rm *.tar.gz
-          else
-            echo "⚠ No previous release found, starting fresh cumulative dataset"
-          fi
-            
-      - name: Merge data
-        run: |
-          echo "Merging available data sources..."
-          TODAY=$(date +%Y-%m-%d)
-          
-          # Copy new scraper data into cumulative Data/ structure
-          # Only merge what actually exists (allows partial scraper failures)
-          
-          if [ -d "./new-data/steamspy-data-raw" ]; then
-            echo "✓ Found SteamSpy data"
-            mkdir -p "Data/$TODAY/SteamSpyScraper"
-            cp -r ./new-data/steamspy-data-raw/$TODAY/SteamSpyScraper/* "Data/$TODAY/SteamSpyScraper/" || true
-          else
-            echo "⚠ Missing SteamSpy data (scraper may have failed)"
-          fi
-          
-          if [ -d "./new-data/igdb-data" ]; then
-            echo "✓ Found IGDB data"
-            mkdir -p "Data/$TODAY/IGDBScraper"
-            cp -r ./new-data/igdb-data/$TODAY/IGDBScraper/* "Data/$TODAY/IGDBScraper/" || true
-          else
-            echo "⚠ Missing IGDB data (scraper may have failed)"
-          fi
-
-          if [ -d "./new-data/rawg-data" ]; then
-            echo "✓ Found RAWG data"
-            mkdir -p "Data/$TODAY/RAWGScraper"
-            cp -r ./new-data/rawg-data/$TODAY/RAWGScraper/* "Data/$TODAY/RAWGScraper/" || true
-          else
-            echo "⚠ Missing RAWG data (scraper may have failed)"
-          fi
-          
-          echo ""
-          echo "✓ Merged structure:"
-          tree Data/ -L 3 || ls -R Data/
+          echo "✓ Dataset contains $(find Data -type d -name '????-??-??' | wc -l) dates"
       
       - name: Create release
         env:
@@ -81,11 +47,8 @@ jobs:
           
           tar -czf "$ARCHIVE" Data/
           
-          if gh release view "$TAG" &>/dev/null; then
-            echo "⚠ Release $TAG already exists, deleting for rerun..."
-            gh release delete "$TAG" --yes
-          fi
+          gh release view "$TAG" &>/dev/null && gh release delete "$TAG" -y --cleanup-tag
           
           gh release create "$TAG" "$ARCHIVE" \
             --title "Game Data - $(date +%Y-%m-%d)" \
-            --notes "Cumulative dataset with all historical data"
+            --notes "Cumulative dataset: $(find Data -type d -name '????-??-??' | wc -l) dates, $(du -h "$ARCHIVE" | cut -f1)"
