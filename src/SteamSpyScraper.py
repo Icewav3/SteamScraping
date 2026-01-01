@@ -72,6 +72,7 @@ class SteamSpyScraper(BaseScraper):
         
         self.save_metadata({"pages_scraped": page + 1, "apps_scraped": total_scraped})
         return total_scraped
+    
 if __name__ == "__main__":
     import os
     import sys
