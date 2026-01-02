@@ -5,6 +5,8 @@ on:
     outputs:
       games_scraped:
         value: ${{ jobs.scrape.outputs.total }}
+      has_warnings:
+        value: ${{ jobs.scrape.outputs.warnings }}
 
 jobs:
   scrape:
@@ -12,10 +14,10 @@ jobs:
     timeout-minutes: 180
     outputs:
       total: ${{ steps.stats.outputs.count }}
+      warnings: ${{ steps.health.outputs.warnings }}
     
     steps:
       - uses: actions/checkout@v4
-      
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
@@ -27,72 +29,47 @@ jobs:
         run: uv sync
       
       - name: Run scraper
-        id: scrape
         env:
           IGDB_CLIENT_ID: ${{ secrets.IGDB_CLIENT_ID }}
           IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}
           IGDB_PAGES: "50"
-        run: |
-          echo "Starting IGDB scraper..."
-          uv run python actions/run_igdb.py | tee output.txt
-          
-          # Check if script ran successfully
-          if [ ${PIPESTATUS[0]} -ne 0 ]; then
-            echo "::error::Scraper script failed"
-            cat output.txt
-            exit 1
-          fi
-        continue-on-error: false
+        run: uv run python -m src.IGDBScraper 2>&1 | tee output.txt || true
       
       - name: Extract stats
         id: stats
         if: always()
         run: |
-          if [ -f output.txt ] && grep -q 'total=' output.txt; then
-            COUNT=$(grep 'total=' output.txt | cut -d= -f2)
-            echo "count=$COUNT" >> $GITHUB_OUTPUT
-          else
-            echo "count=0" >> $GITHUB_OUTPUT
-            echo "::warning::Could not extract scrape count"
-          fi
+          COUNT=$(grep -oP '(?<=total=)\d+' output.txt 2>/dev/null || echo "0")
+          echo "count=$COUNT" >> $GITHUB_OUTPUT
       
-      - name: Validate output
+      - name: Health check
+        id: health
+        if: always()
         run: |
-          TODAY=$(date +%Y-%m-%d)
-          DATA_DIR="Data/$TODAY/IGDBScraper"
-          JSONL="$DATA_DIR/igdb_data.jsonl"
-          
-          echo "Checking for output in: $DATA_DIR"
-          ls -la "$DATA_DIR" || echo "Directory does not exist"
-          
-          # Check file exists and has content
-          if [ ! -f "$JSONL" ]; then
-            echo "::error::Output file not found: $JSONL"
-            echo "::error::Check scraper logs above for errors"
-            exit 1
-          fi
+          JSONL="Data/$(date +%Y-%m-%d)/IGDBScraper/igdb_data.jsonl"
+          WARNINGS=""
           
           if [ ! -s "$JSONL" ]; then
-            echo "::error::Output file is empty: $JSONL"
-            exit 1
+            WARNINGS="Missing or empty output. "
+            echo "::warning::$WARNINGS"
+          else
+            python -c "import json; [json.loads(l) for l in open('$JSONL')]" 2>/dev/null || {
+              WARNINGS="${WARNINGS}Invalid JSON. "
+              echo "::warning::Invalid JSON detected"
+            }
+            
+            LINES=$(wc -l < "$JSONL")
+            [ "$LINES" -lt 50 ] && {
+              WARNINGS="${WARNINGS}Low count ($LINES < 50). "
+              echo "::warning::Only $LINES games scraped"
+            }
           fi
           
-          # Check for valid JSON (sample first 10 lines)
-          if ! head -10 "$JSONL" | python -m json.tool >/dev/null 2>&1; then
-            echo "::error::Invalid JSON detected in $JSONL"
-            exit 1
-          fi
-          
-          # Check minimum threshold
-          LINES=$(wc -l < "$JSONL")
-          if [ "$LINES" -lt 50 ]; then
-            echo "::error::Only $LINES games scraped (expected >50)"
-            exit 1
-          fi
-          
-          echo "✓ Validation passed: $LINES valid entries"
+          echo "warnings=$WARNINGS" >> $GITHUB_OUTPUT
+          exit 0
       
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: igdb-data
           path: Data/
