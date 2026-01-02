@@ -1,4 +1,4 @@
-# 🎮 Game Industry Market Analysis
+# 🎮 Game Industry Culumative Temporal Dataset & Market Analysis
 
 > A powerful data pipeline for scraping, analyzing, and visualizing gaming market trends using SteamSpy data.
 
