@@ -16,13 +16,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          mkdir -p Data
+          
           LATEST=$(gh release list --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null || echo "")
           
-          if [ -n "$LATEST" ] && gh release download "$LATEST" -p "gamedata-*.tar.gz" 2>/dev/null; then
-            tar -xzf gamedata-*.tar.gz && rm gamedata-*.tar.gz
-            echo "✓ Restored cumulative dataset: $LATEST"
+          if [ -n "$LATEST" ]; then
+            echo "Found previous release: $LATEST"
+            
+            # Download all assets from the release
+            if gh release download "$LATEST" -D Data/ 2>/dev/null; then
+              echo "✓ Restored cumulative dataset from: $LATEST"
+              echo "  Contents: $(find Data -type d -name '????-??-??' | wc -l) dates"
+            else
+              echo "⚠ Failed to download release assets, starting fresh"
+            fi
           else
-            echo "⚠ No previous release, starting fresh"
+            echo "⚠ No previous release found, starting fresh dataset"
           fi
       
       - name: Download artifacts
@@ -30,25 +39,129 @@ jobs:
         with:
           path: ./new-data/
       
-      - name: Merge new data
+      - name: Merge new data with idempotency
         run: |
-          for artifact in ./new-data/*/Data; do
-            [ -d "$artifact" ] && cp -rn "$artifact"/* Data/ 2>/dev/null || true
+          echo "=== Merge Strategy ==="
+          echo "New data will be merged into cumulative dataset."
+          echo "Existing scrapers for a date will be REPLACED (idempotent re-runs)."
+          echo ""
+          
+          # Show what we downloaded
+          echo "=== Downloaded Artifacts ==="
+          find ./new-data -type d -maxdepth 1 | grep -v "^\./new-data$" || echo "No artifacts found"
+          echo ""
+          
+          # Process each artifact
+          for artifact_path in ./new-data/*; do
+            artifact_name=$(basename "$artifact_path")
+            
+            # Skip if not a directory
+            [ ! -d "$artifact_path" ] && continue
+            
+            echo "Processing artifact: $artifact_name"
+            
+            # Each artifact should contain Data/YYYY-MM-DD/ScraperName/
+            if [ -d "$artifact_path/Data" ]; then
+              for date_dir in "$artifact_path/Data"/????-??-??; do
+                if [ -d "$date_dir" ]; then
+                  date_name=$(basename "$date_dir")
+                  
+                  echo "  Found date: $date_name"
+                  
+                  # Process each scraper under this date
+                  for scraper_dir in "$date_dir"/*; do
+                    if [ -d "$scraper_dir" ]; then
+                      scraper_name=$(basename "$scraper_dir")
+                      target_dir="Data/$date_name/$scraper_name"
+                      
+                      echo "    Scraper: $scraper_name"
+                      
+                      # IDEMPOTENCY: Remove existing scraper data for this date
+                      # This ensures re-runs replace faulty data
+                      if [ -d "$target_dir" ]; then
+                        echo "      Replacing existing data at $target_dir"
+                        rm -rf "$target_dir"
+                      fi
+                      
+                      # Copy new scraper data
+                      mkdir -p "Data/$date_name"
+                      cp -r "$scraper_dir" "$target_dir"
+                      
+                      # Count records
+                      jsonl_count=$(find "$target_dir" -name "*.jsonl" -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
+                      echo "      ✓ Merged $jsonl_count records"
+                    fi
+                  done
+                fi
+              done
+            else
+              echo "  ⚠ No Data/ directory in artifact, skipping"
+            fi
+            
+            echo ""
           done
           
-          echo "✓ Dataset contains $(find Data -type d -name '????-??-??' | wc -l) dates"
+          echo "=== Final Dataset Summary ==="
+          total_dates=$(find Data -type d -name '????-??-??' | wc -l)
+          echo "Total dates: $total_dates"
+          
+          if [ "$total_dates" -eq 0 ]; then
+            echo "::error::No data found after merge. All scrapers may have failed."
+            exit 1
+          fi
+          
+          # Show breakdown by date
+          for date_dir in Data/????-??-??; do
+            if [ -d "$date_dir" ]; then
+              date_name=$(basename "$date_dir")
+              scrapers=$(find "$date_dir" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | tr '\n' ', ' | sed 's/,$//')
+              echo "  $date_name: $scrapers"
+            fi
+          done
       
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          TAG="data-$(date +%Y-%m-%d)"
-          ARCHIVE="gamedata-${TAG}.tar.gz"
+          TAG="data-$(date -u +%Y-%m-%d)"
           
-          tar -czf "$ARCHIVE" Data/
+          echo "=== Creating Release: $TAG ==="
           
-          gh release view "$TAG" &>/dev/null && gh release delete "$TAG" -y --cleanup-tag
+          # Delete existing release if it exists (for re-runs)
+          if gh release view "$TAG" &>/dev/null; then
+            echo "Release $TAG already exists, deleting for re-creation..."
+            gh release delete "$TAG" -y --cleanup-tag
+          fi
           
-          gh release create "$TAG" "$ARCHIVE" \
-            --title "Game Data - $(date +%Y-%m-%d)" \
-            --notes "Cumulative dataset: $(find Data -type d -name '????-??-??' | wc -l) dates, $(du -h "$ARCHIVE" | cut -f1)"
+          # Create release and upload entire Data directory
+          # GitHub will handle the files directly without tar
+          gh release create "$TAG" \
+            --title "Game Data - $(date -u +%Y-%m-%d)" \
+            --notes "$(cat <<EOF
+          ## Cumulative Dataset Release
+          
+          **Total dates**: $(find Data -type d -name '????-??-??' | wc -l)
+          
+          **Date breakdown**:
+          $(for d in Data/????-??-??; do [ -d "$d" ] && echo "- $(basename $d): $(find $d -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | tr '\n' ', ' | sed 's/,$//')"; done)
+          
+          ---
+          
+          This is a cumulative historical dataset. Each date contains data from multiple game databases.
+          Re-running the workflow for a date will replace that date's data (idempotent).
+          EOF
+          )"
+          
+          # Upload all date directories as separate assets
+          for date_dir in Data/????-??-??; do
+            if [ -d "$date_dir" ]; then
+              date_name=$(basename "$date_dir")
+              echo "Uploading $date_name..."
+              
+              # Create a tar for each date to keep things organized
+              tar -czf "${date_name}.tar.gz" -C Data "$date_name"
+              gh release upload "$TAG" "${date_name}.tar.gz"
+            fi
+          done
+          
+          echo "✓ Release created: $TAG"
