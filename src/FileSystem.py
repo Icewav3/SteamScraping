@@ -3,7 +3,7 @@
 import json
 import os
 from typing import Set, Dict, Any, Optional, Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 import shutil
@@ -20,7 +20,7 @@ class FileSystem:
         """
         self.data_dir = Path(data_dir)
         self.scraper_name = scraper_name
-        self.today = datetime.now().strftime("%Y-%m-%d")
+        self.today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         self.daily_dir = self.data_dir / self.today / scraper_name
         self.daily_dir.mkdir(parents=True, exist_ok=True)
     
