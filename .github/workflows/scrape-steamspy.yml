@@ -1,20 +1,14 @@
 name: 🎮 SteamSpy Scraper
 
 on:
-  workflow_call:
-    outputs:
-      games_scraped:
-        value: ${{ jobs.scrape.outputs.total }}
-      has_warnings:
-        value: ${{ jobs.scrape.outputs.warnings }}
+  schedule:
+    - cron: '0 16 * * *'
+  workflow_dispatch:
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    outputs:
-      total: ${{ steps.stats.outputs.count }}
-      warnings: ${{ steps.health.outputs.warnings }}
     
     steps:
       - uses: actions/checkout@v4
@@ -36,54 +30,15 @@ jobs:
           STEAMSPY_PAGES: "10"
           STEAMSPY_PAGE_DELAY: "15"
           STEAMSPY_APP_DELAY: "0.1"
-        run: |
-          uv run python -m src.SteamSpyScraper 2>&1 | tee output.txt || echo "exit_code=$?" >> $GITHUB_ENV
+        run: uv run python -m src.SteamSpyScraper
       
-      - name: Extract stats
-        id: stats
+      - name: Upload to release
         if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          COUNT=$(grep -oP '(?<=Scraped )\d+' output.txt 2>/dev/null | head -1 || echo "0")
-          echo "count=$COUNT" >> $GITHUB_OUTPUT
-      
-      - name: Health check
-        id: health
-        if: always()
-        run: |
-          TODAY=$(date +%Y-%m-%d)
-          JSONL="Data/$TODAY/SteamSpyScraper/steamspy_data.jsonl"
-          WARNINGS=""
-          
-          # Check file exists
-          if [ ! -f "$JSONL" ]; then
-            WARNINGS="${WARNINGS}Missing output file. "
-            echo "::warning::Output file not found: $JSONL"
-          elif [ ! -s "$JSONL" ]; then
-            WARNINGS="${WARNINGS}Empty output file. "
-            echo "::warning::Output file is empty"
-          else
-            # Check JSON validity (all lines)
-            if ! python -c "import json, sys; [json.loads(line) for line in open('$JSONL')]" 2>/dev/null; then
-              WARNINGS="${WARNINGS}Invalid JSON detected. "
-              echo "::warning::Some lines contain invalid JSON"
-            fi
-            
-            # Check threshold
-            LINES=$(wc -l < "$JSONL")
-            if [ "$LINES" -lt 100 ]; then
-              WARNINGS="${WARNINGS}Low count ($LINES < 100). "
-              echo "::warning::Only $LINES games scraped (expected >100)"
-            fi
+          DATE=$(date +%Y-%m-%d)
+          if ! gh release view "$DATE" &>/dev/null; then
+            gh release create "$DATE" --title "$DATE"
           fi
-          
-          echo "warnings=$WARNINGS" >> $GITHUB_OUTPUT
-          
-          # Always succeed - validation is informational only
-          exit 0
-      
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: steamspy-data-raw
-          path: Data/
-          retention-days: 1
+          gh release upload "$DATE" Data/$DATE/SteamSpyScraper/* --clobber

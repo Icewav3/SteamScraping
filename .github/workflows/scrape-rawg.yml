@@ -1,20 +1,14 @@
 name: 🎮 RAWG Scraper
 
 on:
-  workflow_call:
-    outputs:
-      games_scraped:
-        value: ${{ jobs.scrape.outputs.total }}
-      has_warnings:
-        value: ${{ jobs.scrape.outputs.warnings }}
+  schedule:
+    - cron: '0 16 * * *'
+  workflow_dispatch:
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
     timeout-minutes: 180
-    outputs:
-      total: ${{ steps.stats.outputs.count }}
-      warnings: ${{ steps.health.outputs.warnings }}
     
     steps:
       - uses: actions/checkout@v4
@@ -32,44 +26,15 @@ jobs:
         env:
           RAWG_API_KEY: ${{ secrets.RAWG_API_KEY }}
           RAWG_PAGES: "100"
-        run: uv run python -m src.RAWGScraper 2>&1 | tee output.txt || true
+        run: uv run python -m src.RAWGScraper
       
-      - name: Extract stats
-        id: stats
+      - name: Upload to release
         if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          COUNT=$(grep -oP '(?<=total=)\d+' output.txt 2>/dev/null || echo "0")
-          echo "count=$COUNT" >> $GITHUB_OUTPUT
-      
-      - name: Health check
-        id: health
-        if: always()
-        run: |
-          JSONL="Data/$(date +%Y-%m-%d)/RAWGScraper/rawg_data.jsonl"
-          WARNINGS=""
-          
-          if [ ! -s "$JSONL" ]; then
-            WARNINGS="Missing or empty output. "
-            echo "::warning::$WARNINGS"
-          else
-            python -c "import json; [json.loads(l) for l in open('$JSONL')]" 2>/dev/null || {
-              WARNINGS="${WARNINGS}Invalid JSON. "
-              echo "::warning::Invalid JSON detected"
-            }
-            
-            LINES=$(wc -l < "$JSONL")
-            [ "$LINES" -lt 50 ] && {
-              WARNINGS="${WARNINGS}Low count ($LINES < 50). "
-              echo "::warning::Only $LINES games scraped"
-            }
+          DATE=$(date +%Y-%m-%d)
+          if ! gh release view "$DATE" &>/dev/null; then
+            gh release create "$DATE" --title "$DATE"
           fi
-          
-          echo "warnings=$WARNINGS" >> $GITHUB_OUTPUT
-          exit 0
-      
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: rawg-data
-          path: Data/
-          retention-days: 1
+          gh release upload "$DATE" Data/$DATE/RAWGScraper/* --clobber
