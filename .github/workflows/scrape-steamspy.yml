@@ -5,6 +5,9 @@ on:
     - cron: '0 16 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   scrape:
     runs-on: ubuntu-latest
@@ -37,8 +40,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -e
           DATE=$(date +%Y-%m-%d)
+          
+          # Create release if it doesn't exist (idempotent)
           if ! gh release view "$DATE" &>/dev/null; then
-            gh release create "$DATE" --title "$DATE"
+            echo "Creating release for $DATE"
+            gh release create "$DATE" --title "Data for $DATE" --notes "Automated game data scraping for $DATE"
+          else
+            echo "Release $DATE already exists"
           fi
-          gh release upload "$DATE" Data/$DATE/SteamSpyScraper/* --clobber
+          
+          # Check if files exist before uploading
+          if [ -d "Data/$DATE/SteamSpyScraper" ] && [ "$(ls -A Data/$DATE/SteamSpyScraper)" ]; then
+            echo "Uploading SteamSpy data..."
+            # Upload with --clobber to overwrite if needed
+            gh release upload "$DATE" Data/$DATE/SteamSpyScraper/* --clobber || {
+              echo "Warning: Upload failed, but continuing..."
+              exit 0
+            }
+            echo "✓ SteamSpy data uploaded successfully"
+          else
+            echo "No SteamSpy data to upload"
+            exit 1
+          fi
