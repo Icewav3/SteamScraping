@@ -1,8 +1,9 @@
 name: 🎮 RAWG Scraper
 
 on:
-  schedule:
-    - cron: '0 16 * * *'
+  # Temp due to account setup failing
+  # schedule:
+  #   - cron: '0 16 * * *'
   workflow_dispatch:
 
 jobs:
