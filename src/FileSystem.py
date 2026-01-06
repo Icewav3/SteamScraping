@@ -25,8 +25,10 @@ class FileSystem:
         self.daily_dir.mkdir(parents=True, exist_ok=True)
     
     def get_output_path(self, filename: str) -> Path:
-        """Get full path for output file."""
-        return self.daily_dir / filename
+        """Get full path for output file with scraper prefix."""
+        prefix = self.scraper_name.replace("Scraper", "").lower() + "_"
+        prefixed_filename = prefix + filename if not filename.startswith(prefix) else filename
+        return self.daily_dir / prefixed_filename
     
     def _atomic_append(self, filename: str, write_func: Callable[[Any], None]):
         """

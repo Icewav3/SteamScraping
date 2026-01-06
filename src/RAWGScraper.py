@@ -1,4 +1,7 @@
 # src/RAWGScraper.py
+
+## ON HOLD CANNOT SEEM TO MAKE AN ACCOUNT
+
 """RAWGScraper - Scrapes game data from RAWG.io API."""
 import asyncio
 from typing import Optional, Dict, Any
