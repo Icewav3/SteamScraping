@@ -262,6 +262,28 @@ List of completed app IDs for resume functionality:
 ...
 ```
 
+### Historical data & warehouse
+
+Daily snapshots are uploaded as GitHub release assets (one release per day, tagged
+`YYYY-MM-DD`). To work with the full history locally:
+
+```bash
+uv run python -m src.ReleaseSync        # mirror all release assets into Data/
+uv run python -m src.Warehouse build    # validate + ingest into Parquet (Warehouse/)
+uv run python -m src.Warehouse status   # coverage, gaps, partial days
+```
+
+Then query the whole game × date history with DuckDB:
+
+```python
+from src.Warehouse import Warehouse
+con = Warehouse().connect()   # views: steamspy, igdb, steamspy_changes, snapshot_days
+con.sql("SELECT date, median_2weeks FROM steamspy WHERE appid = 730 ORDER BY date")
+```
+
+Schemas, semantics, and known source quirks (including the SteamSpy field freeze) are
+documented in [DATA.md](DATA.md).
+
 ---
 
 ## 🔧 Troubleshooting

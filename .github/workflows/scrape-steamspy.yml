@@ -11,9 +11,14 @@ permissions:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 300
     
     steps:
+      - name: Pin snapshot date
+        # One date for the whole job: retries and the upload must agree on it,
+        # even when a late-starting run crosses midnight UTC.
+        run: echo "SCRAPE_DATE=$(date -u +%Y-%m-%d)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v4
       
       - uses: actions/setup-python@v5
@@ -33,7 +38,23 @@ jobs:
           STEAMSPY_PAGES: "10"
           STEAMSPY_PAGE_DELAY: "15"
           STEAMSPY_APP_DELAY: "0.1"
-        run: uv run python -m src.SteamSpyScraper
+        run: |
+          MAX_ATTEMPTS=4
+          RETRY_DELAY=1800  # 30 minutes
+          for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            echo "=== Scrape attempt $attempt/$MAX_ATTEMPTS ==="
+            if uv run python -m src.SteamSpyScraper; then
+              echo "✓ Scrape succeeded on attempt $attempt"
+              exit 0
+            fi
+            echo "✗ Attempt $attempt failed"
+            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              echo "Sleeping ${RETRY_DELAY}s before retry..."
+              sleep $RETRY_DELAY
+            fi
+          done
+          echo "✗ All $MAX_ATTEMPTS attempts failed"
+          exit 1
       
       - name: Upload to release
         if: always()
@@ -41,12 +62,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          DATE=$(date +%Y-%m-%d)
+          DATE="$SCRAPE_DATE"
           
           # Create release if it doesn't exist (idempotent)
           if ! gh release view "$DATE" &>/dev/null; then
             echo "Creating release for $DATE"
-            gh release create "$DATE" --title "Data for $DATE" --notes "Automated game data scraping for $DATE"
+            # Another workflow may create it in the same moment; that is fine
+            # as long as the release exists afterwards.
+            gh release create "$DATE" --title "Data for $DATE" --notes "Automated game data scraping for $DATE" \
+              || gh release view "$DATE" &>/dev/null \
+              || { echo "✗ Could not create or find release $DATE"; exit 1; }
           else
             echo "Release $DATE already exists"
           fi
@@ -55,12 +80,22 @@ jobs:
           if [ -d "Data/$DATE/SteamSpyScraper" ] && [ "$(ls -A Data/$DATE/SteamSpyScraper)" ]; then
             echo "Uploading SteamSpy data..."
             # Upload with --clobber to overwrite if needed
-            gh release upload "$DATE" Data/$DATE/SteamSpyScraper/* --clobber || {
-              echo "Warning: Upload failed, but continuing..."
-              exit 0
-            }
+            for try in 1 2 3; do
+              gh release upload "$DATE" Data/$DATE/SteamSpyScraper/* --clobber && break
+              if [ "$try" -eq 3 ]; then echo "✗ Upload failed 3 times"; exit 1; fi
+              echo "Upload attempt $try failed; retrying in 30s"; sleep 30
+            done
             echo "✓ SteamSpy data uploaded successfully"
           else
             echo "No SteamSpy data to upload"
             exit 1
           fi
+
+      - name: Keep data as a run artifact if anything failed
+        # Runners are thrown away; this keeps the day recoverable for 30 days.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-${{ github.run_id }}
+          path: Data/
+          retention-days: 30
