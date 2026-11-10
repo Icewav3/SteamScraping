@@ -1,0 +1,86 @@
+name: 🔑 Check secrets & connections
+
+# Manual only. Read-only: checks the secrets work and every source answers.
+# Uploads nothing and touches no release, so it is safe to run any time.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check secrets and sources
+        env:
+          IGDB_CLIENT_ID: ${{ secrets.IGDB_CLIENT_ID }}
+          IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          failed=0
+          report() { echo "$1"; [ -n "${GITHUB_STEP_SUMMARY:-}" ] && echo "- $1" >> "$GITHUB_STEP_SUMMARY"; return 0; }
+          pass() { report "✓ $1"; }
+          fail() { report "✗ $1"; failed=1; }
+          # Number of real records in a reply. IGDB returns errors as a *list* of
+          # error objects, so count only items that carry an id.
+          count() { jq '[.[]? | select(type == "object" and has("id"))] | length' 2>/dev/null || echo 0; }
+
+          # --- secrets
+          [ -n "${IGDB_CLIENT_ID:-}" ] && pass "IGDB_CLIENT_ID is set" || fail "IGDB_CLIENT_ID is missing or empty"
+          [ -n "${IGDB_CLIENT_SECRET:-}" ] && pass "IGDB_CLIENT_SECRET is set" || fail "IGDB_CLIENT_SECRET is missing or empty"
+
+          # --- Twitch OAuth (secrets sent as form data, never in the URL)
+          token=""
+          if [ -n "${IGDB_CLIENT_ID:-}" ] && [ -n "${IGDB_CLIENT_SECRET:-}" ]; then
+            resp=$(curl -s -m 20 -X POST https://id.twitch.tv/oauth2/token \
+              --data-urlencode "client_id=$IGDB_CLIENT_ID" \
+              --data-urlencode "client_secret=$IGDB_CLIENT_SECRET" \
+              -d grant_type=client_credentials)
+            token=$(jq -r '.access_token // empty' <<<"$resp" 2>/dev/null)
+            if [ -n "$token" ]; then
+              echo "::add-mask::$token"
+              pass "Twitch OAuth: token issued"
+            else
+              fail "Twitch OAuth: $(jq -r '.message // "no token in reply"' <<<"$resp" 2>/dev/null || echo "unreadable reply")"
+            fi
+          fi
+
+          # --- IGDB (same queries the scraper relies on)
+          if [ -n "$token" ]; then
+            igdb() { curl -s -m 20 -X POST "https://api.igdb.com/v4/$1" \
+              -H "Client-ID: $IGDB_CLIENT_ID" -H "Authorization: Bearer $token" -d "$2"; }
+            n=$(igdb games 'fields id; where rating_count > 0; limit 1;' | count)
+            [ "$n" -ge 1 ] && pass "IGDB games query" || fail "IGDB games query returned nothing"
+            field=""
+            for f in external_game_source category; do
+              n=$(igdb external_games "fields id; where $f = 1; limit 1;" | count)
+              if [ "$n" -ge 1 ]; then field=$f; break; fi
+            done
+            [ -n "$field" ] && pass "IGDB Steam links via '$field'" \
+              || fail "IGDB external_games: no Steam links on either field"
+          fi
+
+          # --- Steam
+          q='{"ids":[{"appid":730}],"context":{"language":"english","country_code":"US"},"data_request":{"include_reviews":true}}'
+          rc=$(curl -s -m 20 -G https://api.steampowered.com/IStoreBrowseService/GetItems/v1/ \
+            --data-urlencode "input_json=$q" \
+            | jq -r '.response.store_items[0].reviews.summary_filtered.review_count // empty' 2>/dev/null)
+          [ -n "$rc" ] && pass "Steam GetItems: CS2 has $rc reviews" || fail "Steam GetItems: no review data"
+          pc=$(curl -s -m 20 "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=730" \
+            | jq -r '.response.player_count // empty' 2>/dev/null)
+          [ -n "$pc" ] && pass "Steam players: CS2 has $pc online" || fail "Steam GetNumberOfCurrentPlayers: no data"
+
+          # --- SteamSpy
+          sp=$(curl -s -m 30 "https://steamspy.com/api.php?request=appdetails&appid=730" | jq -r '.appid // empty' 2>/dev/null)
+          [ "$sp" = "730" ] && pass "SteamSpy API" || fail "SteamSpy API: no data (it sometimes says 'Too many connections')"
+
+          # --- GitHub releases (what SteamScraper reads its app list from)
+          tag=$(gh api "repos/$REPO/releases?per_page=1" --jq '.[0].tag_name' 2>/dev/null)
+          [ -n "$tag" ] && pass "GitHub releases API: newest release $tag" || fail "GitHub releases API: no reply"
+
+          exit $failed

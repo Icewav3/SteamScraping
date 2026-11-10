@@ -2,7 +2,7 @@ name: 🎮 IGDB Scraper
 
 on:
   schedule:
-    - cron: '0 16 * * *'
+    - cron: '0 8 * * *'
   workflow_dispatch:
 
 permissions:
@@ -14,6 +14,9 @@ jobs:
     timeout-minutes: 180
     
     steps:
+      - name: Pin snapshot date
+        run: echo "SCRAPE_DATE=$(date -u +%Y-%m-%d)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
@@ -30,34 +33,36 @@ jobs:
           IGDB_CLIENT_ID: ${{ secrets.IGDB_CLIENT_ID }}
           IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}
           IGDB_PAGES: "50"
-        run: uv run python -m src.IGDBScraper
+        run: |
+          MAX_ATTEMPTS=4
+          RETRY_DELAY=1800  # 30 minutes
+          for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            echo "=== Scrape attempt $attempt/$MAX_ATTEMPTS ==="
+            if uv run python -m src.IGDBScraper; then
+              echo "✓ Scrape succeeded on attempt $attempt"
+              exit 0
+            fi
+            echo "✗ Attempt $attempt failed"
+            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              echo "Sleeping ${RETRY_DELAY}s before retry..."
+              sleep $RETRY_DELAY
+            fi
+          done
+          echo "✗ All $MAX_ATTEMPTS attempts failed"
+          exit 1
       
       - name: Upload to release
-        if: always()
+        # Branch runs never touch the dataset; their output lands in the run artifact.
+        if: always() && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -e
-          DATE=$(date +%Y-%m-%d)
-          
-          # Create release if it doesn't exist (idempotent)
-          if ! gh release view "$DATE" &>/dev/null; then
-            echo "Creating release for $DATE"
-            gh release create "$DATE" --title "Data for $DATE" --notes "Automated game data scraping for $DATE"
-          else
-            echo "Release $DATE already exists"
-          fi
-          
-          # Check if files exist before uploading
-          if [ -d "Data/$DATE/IGDBScraper" ] && [ "$(ls -A Data/$DATE/IGDBScraper)" ]; then
-            echo "Uploading IGDB data..."
-            # Upload with --clobber to overwrite if needed
-            gh release upload "$DATE" Data/$DATE/IGDBScraper/* --clobber || {
-              echo "Warning: Upload failed, but continuing..."
-              exit 0
-            }
-            echo "✓ IGDB data uploaded successfully"
-          else
-            echo "No IGDB data to upload"
-            exit 1
-          fi
+        run: bash .github/scripts/upload-release.sh "$SCRAPE_DATE" "Data/$SCRAPE_DATE/IGDBScraper" igdb_data.jsonl
+
+      - name: Keep data as a run artifact
+        # Failed runs: keeps the day recoverable for 30 days. Branch runs: the only output.
+        if: failure() || github.ref != 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-${{ github.run_id }}
+          path: Data/
+          retention-days: 30

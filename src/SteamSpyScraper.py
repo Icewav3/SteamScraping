@@ -21,6 +21,7 @@ class SteamSpyScraper(BaseScraper):
         self.output_file = "steamspy_data.jsonl"
         self.progress_file = "scraped_appids.txt"
         self.error_file = "steamspy_errors.log"
+        self.pages_completed = 0
     
     async def _request(self, request_type: str, **kwargs) -> Optional[Dict[str, Any]]:
         """Make API request."""
@@ -66,11 +67,12 @@ class SteamSpyScraper(BaseScraper):
                     self.save_progress(str(appid), self.progress_file)
                     total_scraped += 1
             
+            self.pages_completed += 1
             self._print(f"Page {page}: scraped {len(app_ids)} apps")
             if self.page_delay > 0:
                 await asyncio.sleep(self.page_delay)
         
-        self.save_metadata({"pages_scraped": page + 1, "apps_scraped": total_scraped})
+        self.save_metadata({"pages_scraped": self.pages_completed, "apps_scraped": total_scraped})
         return total_scraped
     
 if __name__ == "__main__":
@@ -93,12 +95,14 @@ if __name__ == "__main__":
             app_delay=app_delay
         ) as scraper:
             total = await scraper.scrape()
-            print(f"✓ Scraped {total} games")
-            return total
+            print(f"Scraped {total} games this attempt; "
+                  f"{scraper.pages_completed}/{pages} pages complete")
+            # A page cut short by rate limiting is a failure, so the workflow retries
+            # (resuming from the progress file) instead of shipping a partial day.
+            return scraper.pages_completed == pages
 
     try:
-        total = asyncio.run(main())
-        sys.exit(0 if total > 0 else 1)
+        sys.exit(0 if asyncio.run(main()) else 1)
     except Exception as e:
         print(f"✗ Scraper failed: {e}", file=sys.stderr)
         sys.exit(1)

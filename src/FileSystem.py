@@ -20,10 +20,19 @@ class FileSystem:
         """
         self.data_dir = Path(data_dir)
         self.scraper_name = scraper_name
-        self.today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        self.today = self._snapshot_date()
         self.daily_dir = self.data_dir / self.today / scraper_name
         self.daily_dir.mkdir(parents=True, exist_ok=True)
     
+    @staticmethod
+    def _snapshot_date() -> str:
+        """UTC today, unless SCRAPE_DATE pins it (CI sets one date per job)."""
+        pinned = os.getenv("SCRAPE_DATE")
+        if pinned:
+            datetime.strptime(pinned, "%Y-%m-%d")  # reject malformed values
+            return pinned
+        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
     def get_output_path(self, filename: str) -> Path:
         """Get full path for output file with scraper prefix."""
         prefix = self.scraper_name.replace("Scraper", "").lower() + "_"
@@ -81,6 +90,25 @@ class FileSystem:
             return set()
         return set(line.strip() for line in path.read_text().splitlines() if line.strip())
     
+    def write_jsonl(self, records, filename: str):
+        """Replace a file with the given JSON lines atomically."""
+        target_path = self.get_output_path(filename)
+        temp_fd, temp_path = tempfile.mkstemp(
+            dir=self.daily_dir, prefix=f'.{filename}.', suffix='.tmp', text=True)
+        try:
+            with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+                for record in records:
+                    f.write(json.dumps(record) + '\n')
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temp_path, target_path)
+        except BaseException:
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+            raise
+
     def save_json(self, data: Dict[str, Any], filename: str):
         """Save formatted JSON with atomic write."""
         target_path = self.get_output_path(filename)

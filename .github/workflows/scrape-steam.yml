@@ -1,0 +1,73 @@
+name: 🎮 Steam Scraper
+
+on:
+  schedule:
+    # 2h after the SteamSpy run so the same-day appid list usually exists;
+    # the newest-release fallback covers the day it doesn't yet.
+    - cron: '0 10 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    # ~10k player lookups at 0.3s ≈ 1h (reviews are batched); room for retries.
+    timeout-minutes: 300
+
+    steps:
+      - name: Pin snapshot date
+        run: echo "SCRAPE_DATE=$(date -u +%Y-%m-%d)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install UV
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run scraper
+        env:
+          STEAM_API_DELAY: "0.3"
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          MAX_ATTEMPTS=4
+          RETRY_DELAY=1800  # 30 minutes
+          for attempt in $(seq 1 $MAX_ATTEMPTS); do
+            echo "=== Scrape attempt $attempt/$MAX_ATTEMPTS ==="
+            if uv run python -m src.SteamScraper; then
+              echo "✓ Scrape succeeded on attempt $attempt"
+              exit 0
+            fi
+            echo "✗ Attempt $attempt failed"
+            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              echo "Sleeping ${RETRY_DELAY}s before retry..."
+              sleep $RETRY_DELAY
+            fi
+          done
+          echo "✗ All $MAX_ATTEMPTS attempts failed"
+          exit 1
+
+      - name: Upload to release
+        # Branch runs never touch the dataset; their output lands in the run artifact.
+        if: always() && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/upload-release.sh "$SCRAPE_DATE" "Data/$SCRAPE_DATE/SteamScraper" steam_data.jsonl
+
+      - name: Keep data as a run artifact
+        # Failed runs: keeps the day recoverable for 30 days. Branch runs: the only output.
+        if: failure() || github.ref != 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: data-${{ github.run_id }}
+          path: Data/
+          retention-days: 30

@@ -7,6 +7,13 @@ from .BaseScraper import BaseScraper
 from .FileSystem import FileSystem
 from .RateLimiter import RateLimiter
 
+# IGDB external_games source id for Steam. `external_game_source` replaced the
+# deprecated `category`; both are tried, newest first.
+STEAM_SOURCE = 1
+LINK_SOURCE_FIELDS = ("external_game_source", "category")
+# Safety cap on link pages (500 each); hitting it fails the run, never truncates.
+LINKS_MAX_PAGES = 2000
+
 
 class IGDBScraper(BaseScraper):
     """Scraper for IGDB API with OAuth2 and rate limiting."""
@@ -39,6 +46,14 @@ class IGDBScraper(BaseScraper):
         self.output_file = "igdb_data.jsonl"
         self.progress_file = "scraped_game_ids.txt"
         self.error_file = "igdb_errors.log"
+
+        self.links_file = "steam_links.jsonl"
+
+        self.base_fields = (
+            "id, name, rating, rating_count, aggregated_rating, "
+            "aggregated_rating_count, first_release_date, "
+            "genres.name, platforms.name, involved_companies.company.name"
+        )
     
     async def _get_access_token(self) -> Optional[str]:
         """Get OAuth2 access token from Twitch."""
@@ -119,24 +134,23 @@ class IGDBScraper(BaseScraper):
         """
         scraped_ids = self.load_progress(self.progress_file)
         total_scraped = 0
-        
+        fields = self.base_fields
+
         for page in range(self.pages):
             offset = page * self.page_size
             self._print(f"\nFetching page {page + 1}/{self.pages} (offset {offset})...")
-            
-            # Query for games with basic info
-            query = f"""
-                fields id, name, rating, rating_count, aggregated_rating, 
-                       aggregated_rating_count, first_release_date, 
-                       genres.name, platforms.name, involved_companies.company.name;
-                limit {self.page_size};
-                offset {offset};
-                where rating_count > 0;
-                sort rating_count desc;
-            """
-            
-            games = await self._request("games", query)
-            
+
+            def build_query(f: str) -> str:
+                return f"""
+                    fields {f};
+                    limit {self.page_size};
+                    offset {offset};
+                    where rating_count > 0;
+                    sort rating_count desc;
+                """
+
+            games = await self._request("games", build_query(fields))
+
             if not games or len(games) == 0:
                 self._print(f"No more results at page {page + 1}, stopping.")
                 break
@@ -170,7 +184,54 @@ class IGDBScraper(BaseScraper):
         })
         
         return total_scraped
-    
+
+    async def _links_page(self, field: str, after_id: int) -> Optional[Any]:
+        return await self._request(
+            "external_games",
+            f"fields id, game, uid; where {field} = {STEAM_SOURCE} & id > {after_id}; "
+            f"sort id asc; limit {self.page_size};")
+
+    async def scrape_steam_links(self) -> int:
+        """Snapshot every IGDB game <-> Steam appid link.
+
+        Covers all of IGDB, not just the rated games scrape() collects.
+        igdb_id is stable, so the newest snapshot links the whole igdb
+        history to Steam. Pages by id cursor and rewrites the file whole,
+        so retries never duplicate. Returns the link count, 0 on failure.
+        """
+        field, batch = None, None
+        for candidate in LINK_SOURCE_FIELDS:
+            batch = await self._links_page(candidate, 0)
+            if batch:
+                field = candidate
+                break
+            self.log_error(f"external_games on '{candidate}' returned nothing",
+                           self.error_file)
+        if field is None:
+            return 0
+
+        links, pages = [], 1
+        while batch:
+            for ext in batch:
+                uid, game = str(ext.get("uid", "")), ext.get("game")
+                if uid.isdigit() and isinstance(game, int):
+                    links.append({"igdb_id": game, "steam_appid": int(uid)})
+            if len(batch) < self.page_size:
+                break
+            if pages >= LINKS_MAX_PAGES:
+                self.log_error("external_games hit LINKS_MAX_PAGES", self.error_file)
+                return 0
+            batch = await self._links_page(field, batch[-1]["id"])
+            pages += 1
+            if batch is None:
+                self.log_error(f"external_games failed on page {pages}", self.error_file)
+                return 0
+
+        self.fs.write_jsonl(links, self.links_file)
+        self._print(f"Steam links: {len(links)} via '{field}' ({pages} pages)")
+        return len(links)
+
+
 if __name__ == "__main__":
     import os
     import sys
@@ -188,12 +249,15 @@ if __name__ == "__main__":
         
         async with IGDBScraper(fs, client_id, client_secret, pages=pages) as scraper:
             total = await scraper.scrape()
-            print(f"total={total}")
-            return total
+            links = await scraper.scrape_steam_links()
+            games_today = len(scraper.load_progress(scraper.progress_file))
+            print(f"total={total} games_today={games_today} steam_links={links}")
+            # Judge the day, not the attempt: a retry that only redoes the
+            # links scrapes 0 new games and is still a success.
+            return games_today > 0 and links > 0
     
     try:
-        total = asyncio.run(main())
-        sys.exit(0 if total > 0 else 1)
+        sys.exit(0 if asyncio.run(main()) else 1)
     except Exception as e:
         print(f"ERROR: {e}", file=sys.stderr)
         sys.exit(1)
