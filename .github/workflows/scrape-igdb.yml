@@ -2,7 +2,7 @@ name: 🎮 IGDB Scraper
 
 on:
   schedule:
-    - cron: '0 16 * * *'
+    - cron: '0 8 * * *'
   workflow_dispatch:
 
 permissions:
@@ -52,43 +52,15 @@ jobs:
           exit 1
       
       - name: Upload to release
-        if: always()
+        # Branch runs never touch the dataset; their output lands in the run artifact.
+        if: always() && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -e
-          DATE="$SCRAPE_DATE"
-          
-          # Create release if it doesn't exist (idempotent)
-          if ! gh release view "$DATE" &>/dev/null; then
-            echo "Creating release for $DATE"
-            # Another workflow may create it in the same moment; that is fine
-            # as long as the release exists afterwards.
-            gh release create "$DATE" --title "Data for $DATE" --notes "Automated game data scraping for $DATE" \
-              || gh release view "$DATE" &>/dev/null \
-              || { echo "✗ Could not create or find release $DATE"; exit 1; }
-          else
-            echo "Release $DATE already exists"
-          fi
-          
-          # Check if files exist before uploading
-          if [ -d "Data/$DATE/IGDBScraper" ] && [ "$(ls -A Data/$DATE/IGDBScraper)" ]; then
-            echo "Uploading IGDB data..."
-            # Upload with --clobber to overwrite if needed
-            for try in 1 2 3; do
-              gh release upload "$DATE" Data/$DATE/IGDBScraper/* --clobber && break
-              if [ "$try" -eq 3 ]; then echo "✗ Upload failed 3 times"; exit 1; fi
-              echo "Upload attempt $try failed; retrying in 30s"; sleep 30
-            done
-            echo "✓ IGDB data uploaded successfully"
-          else
-            echo "No IGDB data to upload"
-            exit 1
-          fi
+        run: bash .github/scripts/upload-release.sh "$SCRAPE_DATE" "Data/$SCRAPE_DATE/IGDBScraper" igdb_data.jsonl
 
-      - name: Keep data as a run artifact if anything failed
-        # Runners are thrown away; this keeps the day recoverable for 30 days.
-        if: failure()
+      - name: Keep data as a run artifact
+        # Failed runs: keeps the day recoverable for 30 days. Branch runs: the only output.
+        if: failure() || github.ref != 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: data-${{ github.run_id }}

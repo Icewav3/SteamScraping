@@ -4,7 +4,7 @@ on:
   schedule:
     # 2h after the SteamSpy run so the same-day appid list usually exists;
     # the newest-release fallback covers the day it doesn't yet.
-    - cron: '0 18 * * *'
+    - cron: '0 10 * * *'
   workflow_dispatch:
 
 permissions:
@@ -57,43 +57,15 @@ jobs:
           exit 1
 
       - name: Upload to release
-        if: always()
+        # Branch runs never touch the dataset; their output lands in the run artifact.
+        if: always() && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -e
-          DATE="$SCRAPE_DATE"
+        run: bash .github/scripts/upload-release.sh "$SCRAPE_DATE" "Data/$SCRAPE_DATE/SteamScraper" steam_data.jsonl
 
-          # Create release if it doesn't exist (idempotent)
-          if ! gh release view "$DATE" &>/dev/null; then
-            echo "Creating release for $DATE"
-            # Another workflow may create it in the same moment; that is fine
-            # as long as the release exists afterwards.
-            gh release create "$DATE" --title "Data for $DATE" --notes "Automated game data scraping for $DATE" \
-              || gh release view "$DATE" &>/dev/null \
-              || { echo "✗ Could not create or find release $DATE"; exit 1; }
-          else
-            echo "Release $DATE already exists"
-          fi
-
-          # Check if files exist before uploading
-          if [ -d "Data/$DATE/SteamScraper" ] && [ "$(ls -A Data/$DATE/SteamScraper)" ]; then
-            echo "Uploading Steam data..."
-            # Upload with --clobber to overwrite if needed
-            for try in 1 2 3; do
-              gh release upload "$DATE" Data/$DATE/SteamScraper/* --clobber && break
-              if [ "$try" -eq 3 ]; then echo "✗ Upload failed 3 times"; exit 1; fi
-              echo "Upload attempt $try failed; retrying in 30s"; sleep 30
-            done
-            echo "✓ Steam data uploaded successfully"
-          else
-            echo "No Steam data to upload"
-            exit 1
-          fi
-
-      - name: Keep data as a run artifact if anything failed
-        # Runners are thrown away; this keeps the day recoverable for 30 days.
-        if: failure()
+      - name: Keep data as a run artifact
+        # Failed runs: keeps the day recoverable for 30 days. Branch runs: the only output.
+        if: failure() || github.ref != 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: data-${{ github.run_id }}
