@@ -22,6 +22,8 @@ class SteamSpyScraper(BaseScraper):
         self.progress_file = "scraped_appids.txt"
         self.error_file = "steamspy_errors.log"
         self.pages_completed = 0
+        self.page_log = []
+        self._last_headers = {}
     
     async def _request(self, request_type: str, **kwargs) -> Optional[Dict[str, Any]]:
         """Make API request."""
@@ -29,6 +31,7 @@ class SteamSpyScraper(BaseScraper):
         
         try:
             async with self.session.get(self.base_url, params=params) as resp:
+                self._last_headers = resp.headers
                 if resp.status != 200:
                     self.log_error(f"HTTP {resp.status}: {request_type}", self.error_file)
                     return None
@@ -44,11 +47,17 @@ class SteamSpyScraper(BaseScraper):
         
         for page in range(self.pages):
             self._print(f"\nFetching page {page}...")
+            self._last_headers = {}
             apps = await self._request("all", page=page)
+            h = self._last_headers
+            # Cloudflare serves its saved copy (STALE) when SteamSpy's server is down
+            self.page_log.append({"page": page, "ok": bool(apps), "apps": len(apps or {}),
+                                  "cf_cache_status": h.get("cf-cache-status"),
+                                  "age": h.get("age"), "last_modified": h.get("last-modified")})
             
             if not apps:
-                self._print(f"No apps on page {page}, stopping.")
-                break
+                self._print(f"Page {page} failed or empty; skipping (see {self.error_file})")
+                continue
             
             app_ids = [int(aid) for aid in apps.keys()]
             
@@ -72,7 +81,8 @@ class SteamSpyScraper(BaseScraper):
             if self.page_delay > 0:
                 await asyncio.sleep(self.page_delay)
         
-        self.save_metadata({"pages_scraped": self.pages_completed, "apps_scraped": total_scraped})
+        self.save_metadata({"pages_scraped": self.pages_completed, "apps_scraped": total_scraped,
+                            "pages": self.page_log})
         return total_scraped
     
 if __name__ == "__main__":
