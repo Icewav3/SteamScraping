@@ -6,10 +6,18 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "aiohttp>=3.13.2",
-    "marimo>=0.18.3",
     "tqdm>=4.67.1",
-    "pandas>=2.2.0",
     "beautifulsoup4>=4.14.3",
     "duckdb>=1.5.4,<2",
     "pyarrow>=24.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "marimo>=0.18.3",
+    "matplotlib>=3.11.2",
+    "numpy>=2.5.4",
+    "pandas>=2.2.0",
+    "pyzmq>=27.3.0",
+    "seaborn>=0.13.2",
 ]

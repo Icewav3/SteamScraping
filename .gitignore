@@ -2,6 +2,8 @@ Data/
 Warehouse/
 # Personal notes
 cole_review.md
+# IDE
+.idea/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 __marimo__/

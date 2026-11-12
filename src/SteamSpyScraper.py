@@ -5,6 +5,9 @@ from .BaseScraper import BaseScraper
 from .FileSystem import FileSystem
 from .RateLimiter import RateLimiter
 
+# A full request=all page; only the last page may legitimately hold fewer.
+FULL_PAGE = 1000
+
 
 class SteamSpyScraper(BaseScraper):
     """Scraper for SteamSpy API."""
@@ -84,7 +87,29 @@ class SteamSpyScraper(BaseScraper):
         self.save_metadata({"pages_scraped": self.pages_completed, "apps_scraped": total_scraped,
                             "pages": self.page_log})
         return total_scraped
-    
+
+    def exit_code(self) -> int:
+        """0 if the day has any records, else 1. Degraded pages only warn.
+
+        SteamSpy's origin is often down, and Cloudflare's cached copies can be
+        error pages; no retry can fix that the same day, so it must not fail the run.
+        """
+        records = len(self.load_progress(self.progress_file))  # the whole day, not this attempt
+        missing = [p["page"] for p in self.page_log if not p["ok"]]
+        short = [f'{p["page"]} ({p["apps"]} apps)' for p in self.page_log
+                 if p["ok"] and p["apps"] < FULL_PAGE and p["page"] != self.pages - 1]
+        if missing:
+            print(f"::warning::SteamSpy pages {missing} failed or empty "
+                  f"(likely cached upstream errors); saved what was available")
+        if short:
+            print(f"::warning::SteamSpy short pages: {', '.join(short)}")
+        if records == 0:
+            print("::error::SteamSpy produced zero records")
+            return 1
+        print(f"{records} records for the day; {self.pages_completed}/{self.pages} pages complete")
+        return 0
+
+
 if __name__ == "__main__":
     import os
     import sys
@@ -105,14 +130,11 @@ if __name__ == "__main__":
             app_delay=app_delay
         ) as scraper:
             total = await scraper.scrape()
-            print(f"Scraped {total} games this attempt; "
-                  f"{scraper.pages_completed}/{pages} pages complete")
-            # A page cut short by rate limiting is a failure, so the workflow retries
-            # (resuming from the progress file) instead of shipping a partial day.
-            return scraper.pages_completed == pages
+            print(f"Scraped {total} games this attempt")
+            return scraper.exit_code()
 
     try:
-        sys.exit(0 if asyncio.run(main()) else 1)
+        sys.exit(asyncio.run(main()))
     except Exception as e:
         print(f"✗ Scraper failed: {e}", file=sys.stderr)
         sys.exit(1)

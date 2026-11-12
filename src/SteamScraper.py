@@ -16,9 +16,9 @@ percent_positive is a whole number, so exact positive/negative counts are
 not available.
 
 The app universe is the current SteamSpy catalog. On a CI runner Data/ is
-empty (gitignored), so the appid list is fetched from the newest GitHub
-release asset (steamspy_scraped_appids.txt); STEAM_APPIDS_FILE overrides this
-with a local file for dev/testing.
+empty (gitignored), so the appid list is fetched from the newest complete
+SteamSpy day among recent GitHub releases (steamspy_scraped_appids.txt);
+STEAM_APPIDS_FILE overrides this with a local file for dev/testing.
 """
 import asyncio
 import json
@@ -36,6 +36,10 @@ DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # Asset carrying the SteamSpy appid universe (prefixed on newer releases,
 # unprefixed on the earliest ones). The newest release wins either way.
 APPIDS_ASSET_NAMES = ("steamspy_scraped_appids.txt", "scraped_appids.txt")
+# How many newest releases to search for a complete SteamSpy day.
+APPIDS_LOOKBACK = 7
+# Pages in a standard SteamSpy run (STEAMSPY_PAGES); for metadata without a page log.
+STEAMSPY_PAGES = 10
 # Sentinel appid SteamSpy sometimes emits; never a real app.
 SENTINEL_APPID = 999999
 # 429 backoff schedule (seconds); after these are exhausted the request fails.
@@ -45,11 +49,11 @@ REVIEWS_BATCH = 100
 # GetItems item.success value for an app that resolved normally.
 ITEM_OK = 1
 
-# A run fails (so the workflow retries) when any of these are breached.
 # Missing: share of the universe with no row at all (some appids are truly dead).
+# Above this the run warns but passes: the rows it did get are still good.
 MAX_MISSING_FRACTION = 0.01
 # Coverage: share of the day's rows carrying the field. Delisted apps
-# legitimately lack both, but a collapse means an endpoint broke.
+# legitimately lack both, but a collapse means an endpoint broke, so the run fails.
 MIN_REVIEW_COVERAGE = 0.5
 MIN_PLAYER_COVERAGE = 0.5
 
@@ -75,13 +79,21 @@ class SteamScraper(BaseScraper):
         self.review_coverage = 0.0
         self.player_coverage = 0.0
 
-    @property
-    def is_complete(self) -> bool:
-        """True when the day covers enough apps, with both endpoints working."""
-        return (self.apps_total > 0
-                and self.apps_missing <= self.apps_total * MAX_MISSING_FRACTION
-                and self.review_coverage >= MIN_REVIEW_COVERAGE
-                and self.player_coverage >= MIN_PLAYER_COVERAGE)
+    def exit_code(self) -> int:
+        """1 only for what needs a fix: no rows, or an endpoint that stopped answering.
+
+        Missing apps (rate limits, dead appids) only warn; the rows saved are still good.
+        """
+        if self.apps_missing > self.apps_total * MAX_MISSING_FRACTION:
+            print(f"::warning::Steam: {self.apps_missing}/{self.apps_total} apps missing")
+        if self.apps_total == 0 or self.apps_missing == self.apps_total:
+            print("::error::Steam produced zero records")
+            return 1
+        if self.review_coverage < MIN_REVIEW_COVERAGE or self.player_coverage < MIN_PLAYER_COVERAGE:
+            print(f"::error::Steam coverage collapsed (reviews {self.review_coverage:.1%}, "
+                  f"players {self.player_coverage:.1%}); an endpoint has likely changed")
+            return 1
+        return 0
 
     # ------------------------------------------------------------ app universe
 
@@ -136,12 +148,42 @@ class SteamScraper(BaseScraper):
                     releases.append((tag, assets))
             page += 1
 
+        candidates = []  # (tag, appid list url, metadata url), newest first
         for tag, assets in sorted(releases, key=lambda r: r[0], reverse=True):
-            for name in APPIDS_ASSET_NAMES:
-                if name in assets:
-                    self._print(f"Using appid universe from release {tag} ({name})")
-                    return self._parse_appids(await self._download_text(assets[name]))
-        raise RuntimeError("no release asset with a SteamSpy appid list found")
+            name = next((n for n in APPIDS_ASSET_NAMES if n in assets), None)
+            if name:
+                candidates.append((tag, assets[name], assets.get("steamspy_metadata.json")))
+        if not candidates:
+            raise RuntimeError("no release asset with a SteamSpy appid list found")
+
+        # A partial SteamSpy day would shrink the Steam day with it, so prefer
+        # the newest complete one; fall back to the newest list if none is recent.
+        chosen = candidates[0]
+        for tag, list_url, meta_url in candidates[:APPIDS_LOOKBACK]:
+            if meta_url and self._steamspy_complete(await self._download_text(meta_url)):
+                chosen = (tag, list_url, meta_url)
+                break
+            self._print(f"Skipping SteamSpy list from {tag}: day incomplete or unknown")
+        else:
+            self._print(f"::warning::No complete SteamSpy day in the last {APPIDS_LOOKBACK} "
+                        f"releases; using the newest list ({chosen[0]})")
+        self._print(f"Using appid universe from release {chosen[0]}")
+        return self._parse_appids(await self._download_text(chosen[1]))
+
+    @staticmethod
+    def _steamspy_complete(metadata_text: str) -> bool:
+        """True when steamspy_metadata.json shows every requested page scraped.
+
+        Newer metadata has a per-page `pages` log; older files only have
+        pages_scraped, judged against the standard 10-page run.
+        """
+        try:
+            meta = json.loads(metadata_text)
+        except ValueError:
+            return False
+        log = meta.get("pages")
+        expected = len(log) if isinstance(log, list) else STEAMSPY_PAGES
+        return meta.get("pages_scraped", 0) >= expected
 
     async def _load_appids(self) -> List[int]:
         override = os.getenv("STEAM_APPIDS_FILE")
@@ -294,10 +336,10 @@ if __name__ == "__main__":
                   f"{scraper.apps_missing}/{scraper.apps_total} still missing; "
                   f"review coverage {scraper.review_coverage:.1%}, "
                   f"player coverage {scraper.player_coverage:.1%}")
-            return scraper.is_complete
+            return scraper.exit_code()
 
     try:
-        sys.exit(0 if asyncio.run(main()) else 1)
+        sys.exit(asyncio.run(main()))
     except Exception as e:
         print(f"✗ Scraper failed: {e}", file=sys.stderr)
         sys.exit(1)

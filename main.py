@@ -1,16 +1,3 @@
-# /// script
-# requires-python = ">=3.13"
-# dependencies = [
-#     "aiohttp>=3.13.2",
-#     "beautifulsoup4>=4.12.0",
-#     "duckdb>=1.5.0",
-#     "marimo>=0.17.0",
-#     "pyarrow>=24.0.0",
-#     "pyzmq>=27.1.0",
-#     "tqdm>=4.67.1",
-# ]
-# ///
-
 import marimo
 
 __generated_with = "0.18.4"
